@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.10"
       - run: pip install nbformat==5.11.1
@@ -40,7 +40,7 @@ jobs:
         slug: ${{ fromJson(needs.list.outputs.slugs) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.10"
           cache: pip
