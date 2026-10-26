@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-10-26)
+
+- The PDF book opens with a designed cover page (`book/ai-engineering-primer-cover.pdf`, set by `cover` in `release.json`); the edition details move to the About page
+- PDF bookmarks keep the space where a long heading wraps ("becomes numbers", not "becomesnumbers"), and viewers number pages to match the printed footers
 
 - Site redesign: light and dark mode with a header toggle (follows the system setting until chosen), a new home page with guide cards and the Part 2 roadmap, and guide pages with a series sidebar, an "On this page" contents with the current section highlighted, a reading-progress bar, Colab and notebook links, copy buttons on code, joined code and output blocks with syntax colours, and previous and next links.
 

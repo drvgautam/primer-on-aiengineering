@@ -37,6 +37,11 @@ export default async function Book() {
 
         <section className="front">
           <h2>About this book</h2>
+          <p className="edition">
+            {release.title} · {release.author} · Version {release.version} · {built}
+            <br />
+            {repo}
+          </p>
           <p>
             This book collects the guides of <em>{release.title}</em>. It's written for a strong software engineer who
             has used LLM APIs but never trained a model. You'll need programming fluency and comfort with matrix

@@ -4,7 +4,8 @@
   "author": "Dr. Vinay Gautam",
   "repo": "drvgautam/primer-on-aiengineering",
   "branch": "main",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "cover": "book/ai-engineering-primer-cover.pdf",
   "parts": [
     {
       "name": "How LLMs work",

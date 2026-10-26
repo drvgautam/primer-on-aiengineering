@@ -4,6 +4,9 @@
 // --build   run `npm run build` first (otherwise out/ must already exist)
 // --guide   print one guide only (the cover, front matter and appendices are dropped)
 //
+// When release.json names a `cover` PDF, its first page replaces the HTML cover, scaled to the
+// book's page size.
+//
 // The PDF gets a page-number footer, a bookmark outline built from the headings, and a
 // contents page whose entries link to each guide.
 
@@ -12,6 +15,7 @@ import http from "node:http"
 import path from "node:path"
 import { execSync } from "node:child_process"
 import { chromium } from "playwright"
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from "pdf-lib"
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
 const OUT_DIR = path.join(ROOT, "out")
@@ -23,6 +27,11 @@ const opt = (name, dflt) => {
 const release = JSON.parse(fs.readFileSync(path.join(ROOT, "release.json"), "utf8"))
 const guide = opt("--guide", null)
 const format = opt("--format", "A4")
+const cover = release.cover && !guide ? path.join(ROOT, release.cover) : null
+if (cover && !fs.existsSync(cover)) {
+  console.error(`cover ${release.cover} (from release.json) not found`)
+  process.exit(2)
+}
 const outFile = path.resolve(
   opt("--out", path.join(ROOT, "dist", `primer-on-aiengineering-${release.version}${guide ? `-${guide}` : ""}.pdf`)),
 )
@@ -71,6 +80,8 @@ try {
     if (!found) throw new Error(`no released guide with slug "${guide}"`)
   }
 
+  if (cover) await page.evaluate(() => document.querySelector(".book .cover")?.remove())
+
   fs.mkdirSync(path.dirname(outFile), { recursive: true })
   const small = 'style="font: 8px system-ui, sans-serif; color: #666; width: 100%; padding: 0 18mm;"'
   await page.pdf({
@@ -84,8 +95,56 @@ try {
     footerTemplate: `<div ${small}><span>${release.title} · v${release.version}</span><span style="float: right;"><span class="pageNumber"></span></span></div>`,
     margin: { top: "20mm", bottom: "20mm", left: "18mm", right: "18mm" },
   })
+  const headings = await page.$$eval(".book :is(h1, h2, h3, h4, h5, h6)", (hs) =>
+    hs.map((h) => {
+      const c = h.cloneNode(true)
+      c.querySelectorAll(".katex-mathml").forEach((m) => m.remove())
+      return c.textContent.trim()
+    }),
+  )
+  await finish(outFile, cover, headings)
   console.log(`wrote ${path.relative(ROOT, outFile)}`)
 } finally {
   await browser.close()
   server.close()
+}
+
+// Fix up Chromium's PDF:
+// - Bookmark titles lose the space where a heading wraps onto a second line ("becomesnumbers");
+//   each title is replaced by the heading it came from, matched with spaces ignored.
+// - With a cover, put it in front of the printed book. Inserting a page keeps the outline, links
+//   and tags, which point at page objects rather than page numbers. Page labels make a viewer's
+//   page numbers match the printed footers: "Cover", then 1, 2, 3...
+async function finish(bookFile, coverFile, headings) {
+  const book = await PDFDocument.load(fs.readFileSync(bookFile))
+
+  const real = new Map(headings.map((h) => [h.replace(/\s+/g, ""), h]))
+  const visit = (item) => {
+    for (; item instanceof PDFDict; item = item.lookup(PDFName.of("Next"))) {
+      const title = item.lookup(PDFName.of("Title"))
+      const fixed = title && real.get(title.decodeText().replace(/\s+/g, ""))
+      if (fixed && fixed !== title.decodeText()) item.set(PDFName.of("Title"), PDFHexString.fromText(fixed))
+      visit(item.lookup(PDFName.of("First")))
+    }
+  }
+  visit(book.catalog.lookup(PDFName.of("Outlines"))?.lookup(PDFName.of("First")))
+
+  if (coverFile) {
+    const [art] = await book.embedPdf(fs.readFileSync(coverFile), [0])
+    const { width, height } = book.getPage(0).getSize()
+    const scale = Math.max(width / art.width, height / art.height)
+    const page = book.insertPage(0, [width, height])
+    page.drawPage(art, {
+      x: (width - art.width * scale) / 2,
+      y: (height - art.height * scale) / 2,
+      width: art.width * scale,
+      height: art.height * scale,
+    })
+    const ctx = book.context
+    book.catalog.set(
+      PDFName.of("PageLabels"),
+      ctx.obj({ Nums: [0, ctx.obj({ P: PDFString.of("Cover") }), 1, ctx.obj({ S: PDFName.of("D"), St: 1 })] }),
+    )
+  }
+  fs.writeFileSync(bookFile, await book.save())
 }

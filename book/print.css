@@ -16,6 +16,7 @@
 .book .cover-title { font-size: 2.8rem; margin: 0.5rem 0 1rem; }
 .book .cover-subtitle { font-size: 1.25rem; margin: 0 0 3rem; }
 .book .cover-author { font: 600 1.1rem system-ui, sans-serif; }
+.book .edition { font: 0.85rem/1.6 system-ui, sans-serif; color: var(--muted); margin: -0.5rem 0 1.5rem; }
 .book .cover-meta { font: 0.9rem/1.6 system-ui, sans-serif; color: var(--muted); }
 
 .book .toc ol, .book .toc ul { padding-left: 1.75rem; }
