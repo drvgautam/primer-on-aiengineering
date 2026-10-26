@@ -1,6 +1,7 @@
 import createMDX from "@next/mdx"
 import rehypeHighlight from "rehype-highlight"
 import rehypeKatex from "rehype-katex"
+import rehypeSlug from "rehype-slug"
 import remarkFrontmatter from "remark-frontmatter"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
@@ -12,13 +13,15 @@ const basePath = process.env.PAGES_BASE_PATH || ""
 const withMDX = createMDX({
   options: {
     remarkPlugins: [remarkFrontmatter, remarkGfm, remarkMath],
-    rehypePlugins: [rehypeKatex, rehypeHighlight],
+    rehypePlugins: [rehypeSlug, rehypeKatex, rehypeHighlight],
   },
 })
 
 export default withMDX({
   output: "export",
   basePath,
+  // for plain <a> links to files outside the app router, such as the PDF
+  env: { NEXT_PUBLIC_BASE_PATH: basePath },
   // /neural-networks/ rather than /neural-networks.html: the URL shape
   // editors/scripts/figures-capture.mjs requests.
   trailingSlash: true,

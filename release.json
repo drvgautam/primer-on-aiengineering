@@ -46,27 +46,39 @@
   "unreleased": [
     {
       "guide": 7,
-      "slug": "pretraining"
+      "slug": "pretraining",
+      "title": "Pre-training: learning from a mountain of text",
+      "part": "Lifecycle"
     },
     {
       "guide": 8,
-      "slug": "finetuning"
+      "slug": "finetuning",
+      "title": "Fine-tuning: teaching a base model new behavior",
+      "part": "Lifecycle"
     },
     {
       "guide": 9,
-      "slug": "alignment"
+      "slug": "alignment",
+      "title": "Alignment: teaching a model which answer is better",
+      "part": "Lifecycle"
     },
     {
       "guide": 10,
-      "slug": "inference"
+      "slug": "inference",
+      "title": "Inference and serving: running a trained model fast and cheap",
+      "part": "Lifecycle"
     },
     {
       "guide": 11,
-      "slug": "tools"
+      "slug": "tools",
+      "title": "Tool use and agents: letting a model act",
+      "part": "Lifecycle"
     },
     {
       "guide": 12,
-      "slug": "rag"
+      "slug": "rag",
+      "title": "Retrieval-augmented generation: answering from documents",
+      "part": "Lifecycle"
     }
   ]
 }

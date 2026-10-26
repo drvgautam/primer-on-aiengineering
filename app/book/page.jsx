@@ -22,7 +22,7 @@ export default async function Book() {
 
   return (
     <PrintProvider>
-      <div className="book">
+      <div className="book prose">
         <section className="cover">
           <p className="cover-kicker">Guides 1–{guides.at(-1).guide}</p>
           <h1 className="cover-title">{release.title}</h1>

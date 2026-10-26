@@ -42,12 +42,12 @@ export function Stepped({ labels, children }) {
             style={{
               font: "inherit",
               fontSize: 13,
-              padding: "2px 12px",
+              padding: "3px 12px",
               borderRadius: 999,
-              border: "1px solid currentColor",
+              border: `1px solid ${i === step ? "var(--accent, CanvasText)" : "var(--rule-strong, currentColor)"}`,
               cursor: "pointer",
-              color: i === step ? "Canvas" : "inherit",
-              background: i === step ? "CanvasText" : "transparent",
+              color: i === step ? "var(--on-accent, Canvas)" : "inherit",
+              background: i === step ? "var(--accent, CanvasText)" : "transparent",
             }}
           >
             {label}
