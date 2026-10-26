@@ -1,0 +1,391 @@
+---
+title: "The transformer: blocks, stacks and a model that works"
+guide: 5
+slug: transformer
+part: How LLMs work
+---
+import { BlockFigure, StackFigure, ContextLossFigure } from "../components/figures/transformer"
+
+# The transformer: blocks, stacks and a model that works
+
+Guides 1 to 4 built the pieces. This guide assembles them into a **transformer**, the design behind GPT-2, which OpenAI released in 2019 ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)), and the other large language models (LLMs) this series discusses. By the end you'll be able to draw one transformer block from memory and say where each of GPT-2 small's 124,439,808 parameters sits. You'll also train a small transformer yourself, in a few seconds, and read what its results do and don't show.
+
+## The pieces so far, and what's missing
+
+Recall from Guides 3 and 4 that a model's input is a matrix $X$ with one row per token and $d_{\text{model}}$ numbers per row. Each row is a token's embedding plus a position vector. For the running example, "The cat sat on the", that's 5 rows of 768 numbers in GPT-2 small. Recall too that attention gives each token a new vector: a weighted average of value vectors from the tokens it can see.
+
+That leaves the model short of two things.
+
+- It has nowhere to compute, because to a first approximation attention only mixes. The softmax decides how much of each vector to take, but what gets taken is one matrix multiply and an average. Recall from Guide 1 that matrix multiplies with no activation function between them collapse into a single one. The model still needs a place with an activation function, where it can compute something new from a token's vector.
+- It needs depth, because one round of mixing isn't much. In a first round of attention a token draws on raw embeddings. In a second round it can draw on vectors that already carry context. In the character-level model we train below, that's how a character can find out which word the earlier characters spell. Whatever we build has to stack dozens of times and still train.
+
+A small network applied to every token fills the first gap. Residual connections and layer normalization, two pieces of plumbing, fill the second. The last sections train the result, a model with 27,739 parameters. Recall that Guide 1's network saw one character at a time and stalled at a loss of 0.884. This one gets below that.
+
+## A network for each token
+
+Recall from Guide 1 the two-layer network: a hidden layer with an activation function, then a second layer without one. The transformer reuses it under the name **MLP** (multilayer perceptron, the textbook name for layers stacked this way). It takes one token's row $x$ and returns a row of the same width:
+
+$$
+\operatorname{MLP}(x) = \operatorname{GELU}(xW_1 + b_1)\,W_2 + b_2
+$$
+
+$W_1$ and $b_1$ are the hidden layer's weight matrix and bias row. They widen the row from $d_{\text{model}}$ numbers to a larger width, $d_{\text{ff}}$, where "ff" is for feed-forward, another name for this network. Each hidden neuron can respond to one pattern in the row, so a wider hidden layer can pick out more patterns. $W_2$ and $b_2$ bring the result back to $d_{\text{model}}$. These are the matrices Guide 1 wrote as $W^{(1)}$ and $W^{(2)}$, with the numbering moved to a subscript. **GELU** (Gaussian error linear unit) is GPT-2's activation function. It behaves like Guide 1's ReLU (rectified linear unit) with the corner at zero rounded off and a small dip below zero just to its left ([Hendrycks & Gimpel, 2016](https://arxiv.org/abs/1606.08415)).
+
+The same MLP, with the same weights, is applied to every row of $X$ separately. Nothing in it lets one token's row affect another's. So the two parts divide the work cleanly: attention moves information between tokens, and the MLP works on each token's vector alone. Attention can move information, but once its attention weights for an input are computed, all it does to the vectors is a matrix multiply and an average.
+
+In GPT-2 small, $d_{\text{ff}} = 3{,}072$, four times $d_{\text{model}}$, a ratio it inherits from the original transformer, the 2017 translation model ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)). Each row goes from 768 numbers to 3,072 and back. Count the parameters. $W_1$ has $768 \times 3{,}072$ entries, $W_2$ has as many again, and the two bias rows add 3,072 and 768. Recall from Guide 4 that attention's four matrices are each $768 \times 768$, with a bias row of 768 apiece.
+
+| Part of one GPT-2 small block | Parameters |
+|---|---|
+| Attention | 2,362,368 |
+| MLP | 4,722,432 |
+
+The weight matrices alone differ by exactly a factor of two, $8\,d_{\text{model}}^2$ against $4\,d_{\text{model}}^2$. If you pictured a transformer as mostly attention, flip the picture: the MLP is the bigger half.
+
+What does it do with all those parameters? Research suggests that much of what a model has learned is encoded there: recurring patterns in text ([Geva et al., 2021](https://arxiv.org/abs/2012.14913)) and factual associations ([Meng et al., 2022](https://arxiv.org/abs/2202.05262)). Nothing is filed as a record you could look up. The knowledge is spread over many parameters, in attention and the embedding table as well, and as of October 2026 how it's held is an open research question.
+
+## Residual connections
+
+Guide 4 said to treat attention's output as the token's new vector, for now. Real models don't replace the vector. Each part computes a change and *adds* it to what came in:
+
+$$
+x \leftarrow x + f(x)
+$$
+
+Here $f$ stands for attention or the MLP, and the arrow means "becomes". This is a **residual connection** ([He et al., 2016](https://arxiv.org/abs/1512.03385)), introduced in this form to train image networks more than a hundred layers deep.
+
+It helps to picture a running vector for each token that passes up through the whole model. It starts as the token's embedding plus its position vector, and every attention step and every MLP after that reads it and adds something. This running vector is the **residual stream**, a name from [Elhage et al. (2021)](https://transformer-circuits.pub/2021/framework/index.html); libraries call its contents hidden states. All the tokens' streams together are the matrix $X$, and it stays $n \times d_{\text{model}}$ at every level.
+
+Adding has two consequences.
+
+- Nothing is replaced wholesale. The token's embedding and position are written at the bottom, and every later part adds to them. A part can still cancel earlier content by adding its opposite, so the stream holds what the parts leave in it.
+- Each part can begin as a small edit. A new part whose output is close to zero leaves the stream as it was, so adding depth does no harm before the part has learned anything. Without the addition, every part would have to pass on everything the later ones need, from the first training step.
+
+Deep stacks without these connections are hard to train (He et al., 2016). You'll see it happen in "Taking pieces away" below: with the additions removed, a version of our model that stacks attention and MLP eight times is still at a loss of 2.319 after 300 training steps, where the full version reaches 0.153.
+
+## Normalization
+
+Adding outputs onto a stream dozens of times has a risk. The numbers can drift in size, large for one token and small for another. Attention scores are dot products of vectors made from the stream, so they grow with it. Recall from Guide 4 that large scores saturate the softmax and leave gradients too small to learn from, which is one way a drifting scale hurts. **Layer normalization** ([Ba, Kiros & Hinton, 2016](https://arxiv.org/abs/1607.06450)) rescales each token's row before a part reads it:
+
+$$
+\operatorname{LN}(x) = \gamma \odot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta
+$$
+
+$\mu$ and $\sigma^2$ are the mean and variance of that one row's $d_{\text{model}}$ numbers. Recall from Guide 4 that variance is the average squared distance from the mean. Subtracting $\mu$ and dividing by the standard deviation leaves a row with mean 0 and variance 1. $\epsilon$ is a tiny constant that guards against dividing by zero. $\gamma$ and $\beta$ are learned rows of $d_{\text{model}}$ numbers, a scale and a shift for each slot, and $\odot$ multiplies slot by slot. They start at 1 and 0, which makes this a plain normalization at first. Training can then give each slot the scale and offset that work best, and those are fixed settings that no longer depend on what size of numbers arrives.
+
+Try it on the row $[2, 4, 6, 8]$. The mean is 5, the variance is $(9 + 1 + 1 + 9)/4 = 5$, and the standard deviation is $\sqrt{5} \approx 2.236$. The first entry becomes $(2 - 5)/2.236 \approx -1.342$, and the whole row becomes $[-1.342, -0.447, 0.447, 1.342]$.
+
+The code in this guide uses PyTorch 2.14.1, pinned in the series `requirements.txt` as of October 2026. Earlier guides used numpy and wrote backpropagation out by hand. PyTorch supplies ready-made layers and **autograd**, which records each operation in the forward pass and then runs backpropagation for you. Before trusting it with a transformer, check it against a result you know. Recall Guide 1's two-weight network, with $x = 1$, $y = 2$, $w_1 = 2$ and $w_2 = 0.5$. By hand, the loss was 0.5 and the gradients were −0.5 for $w_1$ and −2 for $w_2$.
+
+```python fresh
+import torch
+w1 = torch.tensor(2.0, requires_grad=True)     # ask autograd to track these two
+w2 = torch.tensor(0.5, requires_grad=True)
+x, y = 1.0, 2.0
+y_hat = w2 * torch.relu(w1 * x)
+loss = 0.5 * (y_hat - y) ** 2                  # squared error, as in Guide 1
+loss.backward()                                # backpropagation
+print(loss.item(), w1.grad.item(), w2.grad.item())
+```
+
+```output
+0.5 -0.5 -2.0
+```
+
+The numbers match. From here on, `loss.backward()` does the chain rule. Now the layer normalization, with $\epsilon$ set to 0 so the output matches the hand calculation:
+
+```python
+row = torch.tensor([2.0, 4.0, 6.0, 8.0])
+print(torch.nn.functional.layer_norm(row, (4,), eps=0))    # γ = 1 and β = 0
+```
+
+```output
+tensor([-1.3416, -0.4472,  0.4472,  1.3416])
+```
+
+Where the normalization goes has changed over time. The original transformer was a translation model in two halves: an encoder that read the input sentence and a decoder that wrote the output while also drawing from the encoder's output. GPT-2 keeps only the decoder side, without that extra attention. The original normalized the stream after each addition, an arrangement called **post-LN** (Vaswani et al., 2017). GPT-2 moved the normalization to the input of each part, which leaves the stream itself unnormalized, and added one more normalization at the top of the stack (Radford et al., 2019). That arrangement is **pre-LN**. It trains stably without the warm-up that post-LN needs, a stretch at the start of training where the learning rate is raised slowly from near zero ([Xiong et al., 2020](https://arxiv.org/abs/2002.04745)), and it made deeper stacks trainable ([Wang et al., 2019](https://arxiv.org/abs/1906.01787)). It's the one this guide follows.
+
+## The block, assembled
+
+A **transformer block** is the four pieces so far, attention, the MLP, residual connections and layer normalization, in a fixed order. In GPT-2's arrangement it's two lines:
+
+$$
+\begin{aligned}
+X &\leftarrow X + \operatorname{MultiHead}(\operatorname{LN}_1(X)) \\
+X &\leftarrow X + \operatorname{MLP}(\operatorname{LN}_2(X))
+\end{aligned}
+$$
+
+$\operatorname{MultiHead}$ is Guide 4's multi-head attention with its causal mask. $\operatorname{LN}_1$ and $\operatorname{LN}_2$ are two separate layer normalizations, each with its own $\gamma$ and $\beta$, and both they and the MLP act on every row of $X$ separately. In the first line each token draws information from itself and the tokens before it. In the second, each token works on what it received.
+
+Papers and libraries also call a block a transformer layer, and Guides 3 and 4 said "layer". From here on this series says block, and keeps "layer" for one matrix multiply as in Guide 1.
+
+For the running example, $X$ goes in as $5 \times 768$ and comes out as $5 \times 768$. Because the output has the shape of the input, a second block can read what the first one wrote, and so can a twelfth.
+
+<figure>
+<BlockFigure />
+<figcaption>Figure 1. One block acting on the residual streams of three tokens. Step 1: each stream is normalized, attention draws on its own stream and the streams to the left, and the result is added back. Step 2: each stream is normalized, the MLP works on it alone, and the result is added back. Step 3: the block as a single unit.</figcaption>
+</figure>
+
+Here is the block in PyTorch. `nn.Linear` is a weight matrix and a bias row, Guide 1's layer without the activation function. Guide 1 ran a batch of inputs as rows of $X$. PyTorch layers expect a batch of whole sequences, stacked on a new leading axis, so the shapes in the comments start with the batch size $B$, and the code follows PyTorch's habit of calling the whole batch `x`. An `nn.Module` keeps track of the layers assigned to it and their parameters, and calling it like a function runs its `forward`. The `residual` and `norm` switches are for the experiment later.
+
+The `attention` method is Guide 4's computation for every head at once. One layer, `qkv`, produces all the heads' queries, keys and values side by side in a row of $3\,d_{\text{model}}$ numbers. `view` and `permute` only cut that row into three slices of $h$ heads each and move the head axis forward. `triu(1)` keeps the $-\infty$ entries above the diagonal, which is the causal mask. The last line puts the heads' outputs side by side again and applies $W^O$, Guide 4's matrix that recombines them.
+
+```python
+import math
+import torch.nn as nn
+import torch.nn.functional as F
+class Block(nn.Module):
+    def __init__(self, d_model, h, d_ff, residual=True, norm=True):
+        super().__init__()
+        self.h, self.residual = h, residual
+        self.ln1 = nn.LayerNorm(d_model) if norm else nn.Identity()
+        self.ln2 = nn.LayerNorm(d_model) if norm else nn.Identity()
+        self.qkv = nn.Linear(d_model, 3 * d_model)     # W^Q, W^K, W^V of every head, side by side
+        self.proj = nn.Linear(d_model, d_model)        # W^O
+        self.fc1 = nn.Linear(d_model, d_ff)            # W_1, b_1
+        self.fc2 = nn.Linear(d_ff, d_model)            # W_2, b_2
+    def attention(self, x):                            # x: B × n × d_model
+        B, n, d_model = x.shape
+        d_k = d_model // self.h
+        Q, K, V = self.qkv(x).view(B, n, 3, self.h, d_k).permute(2, 0, 3, 1, 4)   # each B × h × n × d_k
+        S = Q @ K.transpose(-2, -1) / math.sqrt(d_k)                              # scores, B × h × n × n
+        M = torch.full((n, n), float("-inf")).triu(1)                             # causal mask, n × n
+        self.A = torch.softmax(S + M, dim=-1)                                     # weights, kept to look at later
+        return self.proj((self.A @ V).transpose(1, 2).reshape(B, n, d_model))     # heads side by side, then W^O
+    def mlp(self, x):                                  # x: B × n × d_model
+        return self.fc2(F.gelu(self.fc1(x)))           # widths d_model → d_ff → d_model
+    def forward(self, x):                              # B × n × d_model in, the same shape out
+        a = self.attention(self.ln1(x))
+        x = x + a if self.residual else a              # first addition to the stream
+        m = self.mlp(self.ln2(x))
+        return x + m if self.residual else m           # second addition
+```
+
+## Stacking: the whole model
+
+The full path has four stages. Token embeddings plus position vectors start the stream. $L$ blocks, identical in structure and each with its own weights, add to it. A final layer normalization rescales the top. Then an output layer turns each token's final row into logits, one score for every entry in the vocabulary $\mathcal{V}$. Guide 6 covers how those scores become a choice of next token.
+
+<figure>
+<StackFigure />
+<figcaption>Figure 2. GPT-2 small from bottom to top, with the parameter count of each stage. The stream is $n \times 768$ at every level.</figcaption>
+</figure>
+
+In code the whole model is a few lines around `Block`. This one is sized for Guide 1's toy text: 27 characters as its vocabulary (single characters, where an LLM's tokens are Guide 2's subword pieces), $d_{\text{model}} = 32$, $h = 4$ heads, $L = 2$ blocks, $d_{\text{ff}} = 128$, and room for 16 characters of context.
+
+```python
+class TinyGPT(nn.Module):
+    def __init__(self, vocab_size=27, d_model=32, h=4, L=2, d_ff=128, n_max=16, **switches):
+        super().__init__()
+        self.W_E = nn.Embedding(vocab_size, d_model)                 # token embedding table
+        self.W_P = nn.Embedding(n_max, d_model)                      # position table
+        self.blocks = nn.ModuleList([Block(d_model, h, d_ff, **switches) for _ in range(L)])
+        self.ln_f = nn.LayerNorm(d_model) if switches.get("norm", True) else nn.Identity()
+        self.out = nn.Linear(d_model, vocab_size)                    # output layer
+    def forward(self, ids):                                          # ids: B × n token IDs
+        x = self.W_E(ids) + self.W_P(torch.arange(ids.shape[1]))     # B × n × d_model
+        for block in self.blocks:
+            x = block(x)
+        self.stream = x                                              # top of the stream, kept to look at later
+        return self.out(self.ln_f(x))                                # logits, B × n × vocab_size
+torch.manual_seed(0)
+model = TinyGPT()
+print(sum(param.numel() for param in model.parameters()))
+```
+
+```output
+27739
+```
+
+GPT-2 small is the same structure with larger numbers, and its budget takes a few lines of arithmetic:
+
+```python
+def gpt2_small_budget(vocab_size=50257, n_max=1024, d_model=768, d_ff=3072, L=12):
+    attention = 4 * d_model**2 + 4 * d_model           # W^Q, W^K, W^V, W^O and their bias rows
+    mlp = 2 * d_model * d_ff + d_ff + d_model          # W_1, W_2, b_1, b_2
+    norms = 2 * 2 * d_model                            # two layer norms, each a γ row and a β row
+    block = attention + mlp + norms
+    tables, final_norm = vocab_size * d_model + n_max * d_model, 2 * d_model
+    return {"token embeddings, 50,257 × 768": vocab_size * d_model, "position vectors, 1,024 × 768": n_max * d_model,
+            "one block: attention": attention, "one block: MLP": mlp, "one block: two layer norms": norms,
+            "one block, total": block, "12 blocks": L * block, "final layer norm": final_norm,
+            "total": tables + L * block + final_norm}
+for name, count in gpt2_small_budget().items():
+    print(f"{name:32}{count:>12,}")
+```
+
+```output
+token embeddings, 50,257 × 768    38,597,376
+position vectors, 1,024 × 768        786,432
+one block: attention               2,362,368
+one block: MLP                     4,722,432
+one block: two layer norms             3,072
+one block, total                   7,087,872
+12 blocks                         85,054,464
+final layer norm                       1,536
+total                            124,439,808
+```
+
+That total is the 124,439,808 that Guide 3 quoted for the released model, now with every parameter accounted for. The output layer adds nothing to it. Recall from Guide 3 that GPT-2 reuses its embedding table as the output matrix, so the table is counted once. The toy model above keeps a separate output layer, which is 891 of its 27,739 parameters.
+
+Read the table for where the parameters are. About 39 million sit in the embedding table and the position table and about 85 million in the blocks. Inside a block, the MLP has two-thirds of the parameters and attention one-third.
+
+The stack also settles something Guide 3 left open. Recall that the token ` bank` has ID 3331 and gets the same embedding row beside a river and at a lender. That row is only where its stream starts. Each block's attention adds information drawn from the tokens before it, so at the top of the stack ` bank` in "the river bank" and ` bank` in "the savings bank" are different vectors. Only earlier tokens count: with the causal mask, a word that comes after ` bank` never changes ` bank`'s stream. The row at the bottom is the static embedding. The stream at the top is the contextual one.
+
+## A transformer that works
+
+Time to train `TinyGPT`. The data is Guide 1's toy text, 128 characters, cut into every window of 16 characters that has a next character to predict. There are 112 of them. Each position in a window predicts the character that follows it, so the targets are the same windows shifted by one, as in Guide 2. Recall from Guide 4 that the causal mask lets all 16 positions train at once without seeing their answers.
+
+The code simplifies twice. The optimizer is **Adam** (adaptive moment estimation), a refinement of gradient descent that adapts the step size for each parameter ([Kingma & Ba, 2015](https://arxiv.org/abs/1412.6980)). Treat it as gradient descent for now. Guide 7 explains it. And every step uses all 112 windows, where real training uses a small sample of the data at each step, which Guide 7 covers.
+
+```python
+text = ("the cat sat on the mat and the dog sat on the log and the "
+        "cat saw the dog then the dog ran to the cat and the cat ran on the mat")
+vocab = sorted(set("abcdefghijklmnopqrstuvwxyz "))                             # the space is ID 0, as in Guide 1
+ids = torch.tensor([vocab.index(c) for c in text])                             # 128 character IDs
+n = 16
+inputs = torch.stack([ids[start:start + n] for start in range(len(ids) - n)])      # 112 × 16
+targets = torch.stack([ids[start + 1:start + n + 1] for start in range(len(ids) - n)])   # the same windows, one step later
+def train(model, steps, report=()):
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
+    for step in range(steps + 1):
+        logits = model(inputs)                                                 # 112 × 16 × 27
+        loss = F.cross_entropy(logits.reshape(-1, len(vocab)), targets.reshape(-1))    # softmax, then mean cross-entropy
+        if step in report:
+            print(step, f"{loss.item():.3f}")
+        if step < steps:
+            optimizer.zero_grad(); loss.backward(); optimizer.step()
+    return loss.item()
+final_loss = train(model, 500, report=(0, 50, 100, 200, 500))
+```
+
+```output
+0 3.306
+50 0.615
+100 0.212
+200 0.157
+500 0.152
+```
+
+The loss starts near $\ln 27 \approx 3.30$, the value for guessing evenly among 27 characters, as in Guide 1. Within 100 steps it's far below the 0.884 where Guide 1's network stalled. On a different processor your last digits may differ slightly from the ones printed in this guide.
+
+An average hides where that gain comes from. The next block splits the loss by position in the window. Position 1 has one character of context, position 16 has sixteen. Beside each loss it prints the floor, the lowest loss any predictor can reach with that much context. It's Guide 4's counting argument, redone on these same 1,792 examples (112 windows of 16 positions): for each context of $k$ characters, count how often each next character follows it. The best possible predictor outputs exactly those frequencies, and the floor is its average cross-entropy.
+
+```python
+from collections import Counter
+def floor(k):                                          # lowest possible loss with k characters of context
+    seen = Counter((text[start:start + k], text[start + k]) for start in range(len(inputs)))
+    context = Counter()
+    for (c, ch), count in seen.items():
+        context[c] += count
+    return sum(count * math.log(context[c] / count) for (c, ch), count in seen.items()) / len(inputs)
+with torch.no_grad():                                  # inference only: no gradients needed
+    losses = F.cross_entropy(model(inputs).reshape(-1, len(vocab)), targets.reshape(-1), reduction="none")   # 1,792 losses
+by_position = losses.view(len(inputs), n).mean(0)      # 112 × 16, averaged over the 112 windows
+for k in range(1, 17):
+    print(f"{k:2}  model {by_position[k - 1].item():.3f}  floor {floor(k):.3f}")
+```
+
+```output
+ 1  model 0.874  floor 0.869
+ 2  model 0.304  floor 0.301
+ 3  model 0.300  floor 0.298
+ 4  model 0.206  floor 0.205
+ 5  model 0.170  floor 0.169
+ 6  model 0.127  floor 0.125
+ 7  model 0.110  floor 0.108
+ 8  model 0.110  floor 0.108
+ 9  model 0.103  floor 0.101
+10  model 0.051  floor 0.050
+11  model 0.038  floor 0.037
+12  model 0.026  floor 0.025
+13  model 0.014  floor 0.012
+14  model 0.001  floor 0.000
+15  model 0.001  floor 0.000
+16  model 0.001  floor 0.000
+```
+
+<figure>
+<ContextLossFigure />
+<figcaption>Figure 3. The trained model's loss at each position of the window, from the output above. The dashed lines are the floors for one and two characters of context on the same windows.</figcaption>
+</figure>
+
+With one character the model does about as well as one character allows, which was Guide 1's limit. With more, its loss keeps falling: it's using the earlier characters, which is what attention was for. The floors here are slightly lower than Guide 4's 0.884 and 0.337 because they count only the examples in these windows.
+
+At every position the model sits almost exactly on the floor, and from 14 characters on both are near zero. A floor of zero means every context of that length in this text has only one continuation. The model has memorized a 128-character text. Ask it to continue "the c", taking the highest-scoring character each time. That's the simplest rule for choosing, and Guide 6 covers the ones LLMs usually run.
+
+```python
+out = [vocab.index(c) for c in "the c"]
+with torch.no_grad():
+    while len(out) < 45:
+        logits = model(torch.tensor([out[-16:]]))      # the last 16 characters at most, as a batch of one
+        out.append(logits[0, -1].argmax().item())      # highest-scoring next character
+print("".join(vocab[i] for i in out))
+```
+
+```output
+the cat sat on the mat and the dog sat on the
+```
+
+That's the training text, word for word. A loss of 0.001 at the last positions, on text the model trained on, says nothing about how it would do on text it hasn't seen. Telling learning from memorizing takes held-out text, which Guide 7 sets up.
+
+Guide 4's attention weights came from random matrices and meant nothing. These are trained. For the window "the cat sat on t", the code prints each head's average weight on the character just before the current one. For comparison, take a head that spreads its weight evenly. Position $k$ can see $k$ characters, so it would put $1/k$ on the previous one, and the average of $1/2, 1/3, \ldots, 1/16$ is about 0.16.
+
+```python
+window = torch.tensor([[vocab.index(c) for c in "the cat sat on t"]])
+with torch.no_grad():
+    model(window)
+for number, block in enumerate(model.blocks, start=1):
+    A = block.A[0]                                     # h × n × n
+    print("block", number, [round(A[head].diagonal(-1).mean().item(), 2) for head in range(4)])
+```
+
+```output
+block 1 [0.33, 0.24, 0.46, 0.18]
+block 2 [0.19, 0.2, 0.2, 0.42]
+```
+
+In this run, one head in each block puts much of its weight on the previous character: the third head of block 1 puts 0.46 of its weight there, and the fourth head of block 2 puts 0.42. Training has given these heads a pattern, and on another machine or seed it could land in different heads. Treat that as a tendency on one window. As Guide 4 warned, a head's weights show where it drew from and don't tell you what job it does.
+
+## Taking pieces away
+
+Do the residual connections and the normalization earn their place? The `switches` let you test it. The next block trains three 8-block models for 300 steps each: the full block, one with the additions removed, and one with the normalization removed. It ran for about half a minute on a 4-core laptop CPU in October 2026, and yours will differ. It first prints the floor for a predictor with no context, counted on these targets. Then for each model it prints two numbers. The first is measured before training: the standard deviation of each slot across the 16 positions, averaged, then divided by the standard deviation of all the numbers at the top of the stream. Near 1 means most of the variation is between positions, and near 0 means every position holds almost the same vector. The second is the loss after training.
+
+```python timeout=120
+counts = Counter(targets.reshape(-1).tolist())             # how often each character is a target
+print("no-context floor", f"{sum(count * math.log(targets.numel() / count) for count in counts.values()) / targets.numel():.3f}")
+for name, switches in [("full block", {}), ("no residual", {"residual": False}), ("no normalization", {"norm": False})]:
+    torch.manual_seed(0)
+    deep = TinyGPT(L=8, **switches)
+    with torch.no_grad():
+        deep(inputs)                                   # fills deep.stream, B × n × d_model
+    spread = (deep.stream.std(dim=1).mean() / deep.stream.std()).item()    # std over the n positions (B × d_model), relative to overall
+    print(f"{name:18}{spread:8.3f}{train(deep, 300):8.3f}")
+```
+
+```output
+no-context floor 2.318
+full block           0.910   0.153
+no residual          0.030   2.319
+no normalization     0.809   0.152
+```
+
+Read the "no residual" row against the first line. The floor of 2.318, the same to three decimals as the one Guide 4 found over the whole text, belongs to a predictor with no context at all, one that knows only how common each character is. Without residual connections the model learned that and nothing else, not even how to use the current character.
+
+The first column shows where it started. Before any training, the vectors at the top of that model are almost the same at every position. The likely cause is attention itself. Each attention step averages vectors, and eight rounds of averaging with nothing added back wash out the differences between tokens, a collapse analyzed for attention-only stacks by [Dong, Cordonnier & Loukas (2021)](https://arxiv.org/abs/2103.03404). With the additions in place, each token's embedding and position go straight into its stream, and no block has to carry them upward. The experiment shows that this model didn't recover in 300 steps. It doesn't show that no such model could.
+
+The last row needs the same care. Without normalization this model trained as well as the full one. Deep transformers started from the usual small random parameters (their initialization) are reported to be unstable to train unless normalization is placed with care (Wang et al., 2019; Xiong et al., 2020). A toy with about 13,000 parameters per block can't show that either way.
+
+## What carries forward
+
+A transformer block lets each token draw on earlier tokens through attention, then lets each token work alone in the MLP. Both results are added onto a running vector per token, which is what lets identical blocks stack. GPT-2 small is 12 of them, with two-thirds of each block's parameters in the MLP.
+
+- The top of the stack is still $n \times d_{\text{model}}$, one row per token. Guide 6 turns the last row into a probability for every token in the vocabulary and picks from it.
+- Guide 7 trains this design at scale, on a sample of the data at each step, with held-out text to catch memorizing, and explains Adam.
+
+<details>
+<summary>What later models change</summary>
+
+Models released in the years after GPT-2 mostly kept the block's shape and swapped pieces. LLaMA, released in 2023, is one example. It normalizes with RMSNorm (root mean square normalization), which divides each row by the root mean square of its values and skips the mean subtraction ([Zhang & Sennrich, 2019](https://arxiv.org/abs/1910.07467)). Its MLP uses a gated activation in which one projection of the row scales another ([Shazeer, 2020](https://arxiv.org/abs/2002.05202)). Both choices are described in [Touvron et al. (2023)](https://arxiv.org/abs/2302.13971). LLaMA's block keeps the same two-line structure.
+
+</details>

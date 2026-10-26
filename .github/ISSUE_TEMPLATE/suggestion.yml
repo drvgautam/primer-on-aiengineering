@@ -1,0 +1,11 @@
+name: Suggestion
+description: An idea for a guide, an exercise, or the tooling.
+labels: [suggestion]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What would help, and who it helps.
+    validations:
+      required: true

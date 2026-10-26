@@ -1,0 +1,72 @@
+{
+  "title": "A Primer on AI Engineering",
+  "subtitle": "Short, worked, runnable guides to how large language models work",
+  "author": "Dr. Vinay Gautam",
+  "repo": "drvgautam/primer-on-aiengineering",
+  "branch": "main",
+  "version": "0.1.0",
+  "parts": [
+    {
+      "name": "How LLMs work",
+      "guides": [
+        {
+          "guide": 1,
+          "slug": "neural-networks",
+          "blog": "https://www.vinaygautam.com/blog/how-llms-work/01-neural-networks"
+        },
+        {
+          "guide": 2,
+          "slug": "tokenizer",
+          "blog": "https://www.vinaygautam.com/blog/how-llms-work/02-tokenization"
+        },
+        {
+          "guide": 3,
+          "slug": "embeddings",
+          "blog": "https://www.vinaygautam.com/blog/how-llms-work/03-embeddings"
+        },
+        {
+          "guide": 4,
+          "slug": "attention",
+          "blog": "https://www.vinaygautam.com/blog/how-llms-work/04-attention"
+        },
+        {
+          "guide": 5,
+          "slug": "transformer",
+          "blog": "https://www.vinaygautam.com/blog/how-llms-work/05-transformer"
+        },
+        {
+          "guide": 6,
+          "slug": "next-token",
+          "blog": "https://www.vinaygautam.com/blog/how-llms-work/06-next-token"
+        }
+      ],
+      "blog": "https://www.vinaygautam.com/blog/how-llms-work/"
+    }
+  ],
+  "unreleased": [
+    {
+      "guide": 7,
+      "slug": "pretraining"
+    },
+    {
+      "guide": 8,
+      "slug": "finetuning"
+    },
+    {
+      "guide": 9,
+      "slug": "alignment"
+    },
+    {
+      "guide": 10,
+      "slug": "inference"
+    },
+    {
+      "guide": 11,
+      "slug": "tools"
+    },
+    {
+      "guide": 12,
+      "slug": "rag"
+    }
+  ]
+}

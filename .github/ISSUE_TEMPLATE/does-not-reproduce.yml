@@ -1,0 +1,26 @@
+name: Notebook doesn't reproduce the guide
+description: A notebook cell errors, or prints something different from the guide.
+labels: [reproducibility]
+body:
+  - type: input
+    id: notebook
+    attributes:
+      label: Notebook
+      placeholder: code/notebooks/05-transformer.ipynb
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: What the cell printed, and what the guide shows
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Paste the output of the notebook's setup cell, plus your OS and where you ran it (local, Colab, ...).
+      render: text
+    validations:
+      required: true

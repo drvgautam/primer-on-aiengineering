@@ -1,0 +1,321 @@
+---
+title: "Next-token prediction: from probabilities to text"
+guide: 6
+slug: next-token
+part: How LLMs work
+---
+import { LoopFigure, TemperatureFigure, CutsFigure } from "../components/figures/next-token"
+
+# Next-token prediction: from probabilities to text
+
+Guide 5 ended with a stack of blocks whose top is one vector per token. This guide turns that vector into text. The model's real output is a probability for every token in its vocabulary. Picking one token from those probabilities is a separate decision, made by a rule that sits outside the network. By the end you'll be able to say exactly what a large language model (LLM) computes, why training uses every position at once while generation goes one token at a time, and what temperature, top-k and top-p do to the choice.
+
+## From the last vector to a prediction
+
+Recall from Guide 5 that the stack's output has the shape of its input, $n \times d_{\text{model}}$, and that one more layer normalization follows the last block. For the running example, "The cat sat on the", that's $5 \times 768$ in GPT-2 small.
+
+Recall from Guide 5 that the output layer turns each of those rows into one score per vocabulary entry. Recall from Guide 3 that GPT-2 reuses its token embedding table $W_E$ here, an arrangement called weight tying. Take the last row $x$, $1 \times 768$, apply that final layer normalization, and multiply by $W_E^\top$, which is $768 \times 50{,}257$, so each token's logit is the dot product of the normalized row with that token's own row of $W_E$:
+
+$$
+z = \operatorname{LN}(x)\,W_E^\top
+$$
+
+The result is $z$, the logits: 50,257 raw scores, one per token, as in Guide 1. GPT-2's output layer has no bias row and no weights of its own, as OpenAI's released code shows ([openai/gpt-2, `model.py`](https://github.com/openai/gpt-2/blob/master/src/model.py)), so it adds nothing to the 124,439,808 parameters counted in Guide 5. The GPT-2 paper lists this model as "117M", a figure that doesn't match the released weights; OpenAI's later releases call it 124M ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)). Softmax then turns the logits into $p = \operatorname{softmax}(z)$, the **next-token distribution**: 50,257 positive numbers that add up to 1. Guide 5 stopped at the logits; softmax turns them into a probability for every token, not a chosen word.
+
+Why the last row? Every position predicts the token that follows it. When you're generating text, only the last position predicts something that isn't already there. The other rows' logits earn their keep in training. Their vectors still matter at generation time, because the last position draws on them in every block.
+
+## Training: a prediction at every position
+
+Training pairs come from shifting a sequence by one, so the target at each position is the next token (Guide 2), and the causal mask stops each position from drawing on later tokens (Guide 4). Together they let one forward pass make a prediction at every position, each from the true tokens before it. This setup is called **teacher forcing**, because the model is always shown the real preceding text, never its own guesses.
+
+The toy model from Guide 5 shows it at small scale. Its code now lives in a shared file, `guides/tinygpt.py`, so this guide can import it instead of repeating it. The code in this guide uses PyTorch 2.14.1, pinned in the series `requirements.txt` as of October 2026, and its blocks run in order and share variables. The first block trains the toy exactly as Guide 5 did: 27 characters, 2 blocks, 112 windows of 16 characters, Adam, 500 steps. It prints the training text first, which ends "ran on the mat".
+
+```python fresh
+import sys, math
+sys.path.insert(0, "guides")                   # run from the repository root
+import torch
+import torch.nn.functional as F
+from tinygpt import TinyGPT, train, inputs, targets, vocab, text
+print(text)                                    # the 128-character training text
+torch.manual_seed(0)
+model = TinyGPT()
+final_loss = train(model, 500, report=(0, 500))   # prints the step and the training loss
+```
+
+```output
+the cat sat on the mat and the dog sat on the log and the cat saw the dog then the dog ran to the cat and the cat ran on the mat
+0 3.306
+500 0.152
+```
+
+One forward pass over all 112 windows gives a logit for every character at every position:
+
+```python
+with torch.no_grad():
+    logits = model(inputs)                     # B × n × |V|
+print(tuple(logits.shape), logits.shape[0] * logits.shape[1], "predictions")
+print(f"mean cross-entropy {F.cross_entropy(logits.reshape(-1, len(vocab)), targets.reshape(-1)).item():.3f}")
+```
+
+```output
+(112, 16, 27) 1792 predictions
+mean cross-entropy 0.152
+```
+
+That's 1,792 predictions from one pass. The training loss is the average cross-entropy over all of them, the 0.152 that training ended on, and the causal mask is what makes this legal: no position can see the character it's being asked to predict. Training is parallel across positions. Only generation, below, goes one token at a time.
+
+A loss in **nats**, units of the natural log that Guide 1's cross-entropy uses, is hard to picture, so it's often reported as **perplexity** (unrelated to the t-SNE setting of the same name in Guide 3), $\operatorname{PPL} = e^{\mathcal{L}}$, with $\mathcal{L}$ the average cross-entropy loss. A uniform guess over 27 characters has loss $\ln 27$ and perplexity exactly 27. So read perplexity as the number of equally likely options the distribution is effectively spread over at each step.
+
+```python
+for name, loss in [("uniform guess over 27 characters", math.log(27)),
+                   ("Guide 1's loss floor, one character of context", 0.884),
+                   ("Guide 5's toy transformer, training text", final_loss)]:
+    print(f"{name:48}loss {loss:.3f}   perplexity {math.exp(loss):.2f}")
+```
+
+```output
+uniform guess over 27 characters                loss 3.296   perplexity 27.00
+Guide 1's loss floor, one character of context  loss 0.884   perplexity 2.42
+Guide 5's toy transformer, training text        loss 0.152   perplexity 1.16
+```
+
+Two cautions. Perplexity depends on the tokenizer: a model that splits text into more, smaller tokens faces easier choices at each step, so perplexities are only comparable between models that share a tokenizer. Even then, lower perplexity on one kind of text only says the model predicts that text better, which says little about whether it's better at your task. And the toy's 1.16 is measured on the text it memorized, as Guide 5 showed. Guide 7 measures loss and perplexity on held-out text the model never trained on, which is the number that means something.
+
+## Generation: one token at a time
+
+Recall from Guide 4 that generation adds one token at a time, while training predicts every position in one pass. Here is the loop in full:
+
+1. Run the model on the tokens so far.
+2. Take the last position's distribution $p$.
+3. Choose one token from it.
+4. Append that token to the input.
+5. Repeat.
+
+The loop stops when the chosen token is the end-of-text token (ID 50256 in GPT-2, recall from Guide 2) or when a length limit, set by the application, is reached. The **prompt**, the text you hand the model before generation starts, is processed in one parallel pass, like a training example. After that, in this plain loop, each step adds exactly one token, so a 500-token answer takes 500 trips through the model. Guide 10 shows serving tricks that check several proposed tokens in one trip. Running the whole context through the stack again at every step would repeat a lot of work, and Guide 10 shows the cache that avoids it.
+
+The loop also settles how much the model plans ahead. Each token is chosen from a distribution computed from everything before it, so there is no separate draft of the answer waiting to be written out. Whatever plan exists has to be carried in the vectors of the tokens already written, because there's nowhere else for it to live.
+
+Step 3, "choose one token", is the **decoding** rule (not the tokenizer's decode from Guide 2, which turns IDs back into text), and the rest of this guide is about it. Here's the toy model's distribution after "and the ", then after the 16 characters "the mat and the ", and then after each of four short contexts:
+
+```python
+def probs(context, T=1.0):
+    ids = torch.tensor([[vocab.index(ch) for ch in context[-16:]]]) # 1 × n character IDs, the last 16 at most
+    with torch.no_grad():
+        z = model(ids)[0, -1]                                        # last position's logits, |V| values
+    return torch.softmax(z / T, dim=-1)                            # T is explained below
+def show(p, m):                                                    # the m most probable entries
+    return "  ".join(f"{vocab[i]!r} {prob:.3f}" for prob, i in zip(*p.topk(m)))
+print(show(probs("and the "), 5))
+print(f"{'the mat and the '!r:14}", show(probs("the mat and the "), 2))   # the full 16 characters
+for context in ["the cat ", "the cat s", "the cat sa", "the cat sat"]:
+    print(f"{context!r:14}", show(probs(context), 3))
+```
+
+```output
+'c' 0.604  'd' 0.394  'l' 0.001  'a' 0.000  ' ' 0.000
+'the mat and the ' 'd' 0.998  'c' 0.001
+'the cat '     's' 0.513  'r' 0.265  'a' 0.220
+'the cat s'    'a' 0.999  'r' 0.000  'n' 0.000
+'the cat sa'   't' 0.599  'w' 0.398  'm' 0.001
+'the cat sat'  ' ' 1.000  'o' 0.000  'c' 0.000
+```
+
+<figure>
+<LoopFigure />
+<figcaption>Figure 1. Four turns of the generation loop, starting from "the cat ". Each step runs the model, shows the three most probable next characters from the output above, appends the most probable one, and goes again.</figcaption>
+</figure>
+
+## Choosing a token: greedy decoding
+
+The simplest rule is **greedy decoding**: always take the most probable token. That's what Figure 1 did. Guide 5's continuation used this rule without naming it when it took the highest-scoring character each time; it is only one of several, and the rest of this guide covers the others.
+
+Look at the first line of the output in the previous section. Given only "and the ", the model gives "c" 0.604 and "d" 0.394. In the toy text, "and the " is followed by "cat" twice and by "dog" once. The model has learned that both continuations happen, and it favors "cat", though less strongly than the text's 2-to-1.
+
+| Context | The toy's two most probable | Greedy picks |
+|---|---|---|
+| "and the " (8 characters) | "c" 0.604, "d" 0.394 | "c", every time |
+| "the mat and the " (16 characters) | "d" 0.998, "c" 0.001 | "d", every time |
+
+Greedy throws the uncertainty away. After "and the " it picks "c" every time, so however often you run it, you'll never see "dog", a continuation with 39% of the probability. That holds for this 8-character context. With a full 16 characters of context the memorized model is almost certain: after "the mat and the " it gives "d" 0.998, the second line of the output, because in the text that phrase is always followed by "dog". So the greedy run below does produce "and the dog".
+
+Greedy has a second failure. Continue from "the c" until the text is 220 characters long:
+
+```python
+out = "the c"
+while len(out) < 220:
+    out += vocab[probs(out).argmax().item()]   # greedy: the most probable character
+print(out)
+```
+
+```output
+the cat sat on the mat and the dog sat on the log and the cat saw the dog then the dog ran to the cat and the cat ran on the mat and the dog sat on the log and the cat saw the dog then the dog ran to the cat and the cat 
+```
+
+The model reproduces the whole text, reaches "ran on the mat", and carries on as if that "mat" were the first one in the text, starting the loop again. It would go round forever. The main cause is that greedy is deterministic: once the recent context looks like an earlier stretch, it makes the same picks again, and text that has already repeated makes repeating even more probable. The toy adds a cause of its own: the toy sees only its last 16 characters, so once the last 16 characters repeat, it's back where it started. Real LLMs see a far longer context (1,024 tokens for GPT-2) and still fall into loops like this under greedy decoding of open-ended text ([Holtzman et al., 2020](https://arxiv.org/abs/1904.09751)).
+
+<details>
+<summary>Beam search</summary>
+
+Greedy picks the best token at each step, which doesn't guarantee the most probable sequence overall. **Beam search** keeps the several most probable partial sequences (the beam) at each step and extends each of them. It suits tasks with one right answer, such as translation, where it has been the standard decoding rule since the first neural translation systems ([Sutskever, Vinyals & Le, 2014](https://arxiv.org/abs/1409.3215)). In open-ended generation it tends to give bland, repetitive text, because the most probable sequences are often dull ones (Holtzman et al., 2020).
+
+</details>
+
+## Sampling and temperature
+
+**Sampling** draws the next token at random, in proportion to $p$. A token with probability 0.394 is picked about 39% of the time. Every continuation the model gives weight to now appears, in roughly the model's proportions.
+
+**Temperature** $T$ reshapes the distribution before the draw, by dividing the logits:
+
+$$
+p = \operatorname{softmax}(z / T)
+$$
+
+Dividing by $T < 1$ stretches the gaps between logits, so the top choice gets more of the probability. $T > 1$ shrinks the gaps and pushes toward uniform. As $T$ approaches 0 the top choice takes everything, which is greedy decoding. Recall Guide 1's softmax of $[2, 1, 0]$:
+
+```python
+z = torch.tensor([2.0, 1.0, 0.0])
+for T in [0.5, 1.0, 2.0]:
+    print(T, [round(v, 3) for v in torch.softmax(z / T, dim=0).tolist()])
+```
+
+```output
+0.5 [0.867, 0.117, 0.016]
+1.0 [0.665, 0.245, 0.09]
+2.0 [0.506, 0.307, 0.186]
+```
+
+At $T = 1$ you get Guide 1's numbers back. Now the toy model after "and the ", with 1,000 draws at each temperature from one seeded random generator:
+
+```python
+generator = torch.Generator().manual_seed(0)
+c, d = vocab.index("c"), vocab.index("d")
+for T in [0.5, 1.0, 2.0]:
+    p = probs("and the ", T)
+    draws = torch.bincount(torch.multinomial(p, 1000, replacement=True, generator=generator), minlength=len(vocab))
+    other = 1000 - draws[c] - draws[d]
+    print(f"T={T}  p(c) {p[c]:.3f}  p(d) {p[d]:.3f}  rest {1 - p[c] - p[d]:.3f}   "
+          f"draws: c {draws[c]}, d {draws[d]}, other {other} over {(draws > 0).sum() - 2} characters")
+```
+
+```output
+T=0.5  p(c) 0.702  p(d) 0.298  rest 0.000   draws: c 707, d 293, other 0 over 0 characters
+T=1.0  p(c) 0.604  p(d) 0.394  rest 0.003   draws: c 613, d 383, other 4 over 4 characters
+T=2.0  p(c) 0.486  p(d) 0.392  rest 0.122   draws: c 473, d 389, other 138 over 24 characters
+```
+
+<figure>
+<TemperatureFigure />
+<figcaption>Figure 2. The toy model's distribution after "and the " at three temperatures, from the output above. Lower temperature sharpens it toward "c"; higher temperature flattens it, and the other 25 characters together take a visible share.</figcaption>
+</figure>
+
+At $T = 2$, 138 of the 1,000 draws went to 24 other characters, including letters the model never saw after "and the ". To see the effect on text, the next block defines a `generate` function that samples one character at a time; its `k` and `p_top` arguments are for the next section.
+
+```python
+def cut(p, k=None, p_top=None):                 # top-k and top-p, explained in the next section
+    p, order = p.clone(), p.argsort(descending=True)
+    if k is not None:
+        p[order[k:]] = 0                       # keep the k most probable
+    if p_top is not None:
+        before = p[order].cumsum(0) - p[order] # total of the tokens ranked above each one
+        p[order[before >= p_top]] = 0          # keep a token while the total before it is below p_top
+    return p / p.sum()                         # renormalize
+def generate(prompt, n=60, T=1.0, k=None, p_top=None, seed=0):
+    generator, out = torch.Generator().manual_seed(seed), prompt
+    while len(out) < n:
+        p = cut(probs(out, T), k, p_top)
+        out += vocab[torch.multinomial(p, 1, generator=generator).item()]
+    return out
+for T in [1.0, 1.5, 2.0]:
+    print(T, repr(generate("the c", T=T)))
+```
+
+```output
+1.0 'the cat sat on the mat and the dog sat on the log and the ca'
+1.5 'the cat sat on the mad rat an the d log and w the mat and th'
+2.0 'the catd the dog sat oncan to the mat and thw the mat an ann'
+```
+
+At $T = 1$ the memorized model still recites its text. At 1.5 less likely characters start getting drawn ("mad rat"), and at 2 the words fall apart.
+
+Calling temperature a creativity dial oversells it. At $T = 2$ the extra variety came from the 12% of probability on the 25 characters that never follow "and the " in the text, and the model knew nothing new. Temperature reshapes the same distribution: too low gives greedy's repetition, too high gives noise.
+
+And temperature 0 means greedy, which is deterministic in principle: the same logits always give the same top token. As of 2025, served models could still return different outputs for the same prompt at temperature 0, because the server's arithmetic can change slightly depending on how many requests it is processing together. Floating-point sums give slightly different results when added in a different order, and the batch size changes the order ([He, 2025](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)).
+
+## Cutting off the tail: top-k and top-p
+
+The problem at higher temperatures is the tail. Each unlikely token is rare on its own, but together they took 14% of the draws above, and in this toy they're nonsense. In a real model the tail also holds many reasonable continuations, each unlikely on its own, so cutting it trades some of them for fewer bad picks. Two rules cut the tail before sampling.
+
+- **Top-k sampling** keeps the $k$ most probable tokens, renormalizes them to sum to 1, and samples ([Fan, Lewis & Dauphin, 2018](https://arxiv.org/abs/1805.04833)).
+- **Top-p sampling**, also called nucleus sampling, keeps the smallest set of top tokens whose probabilities add up to at least $p_{\text{top}}$, renormalizes, and samples (Holtzman et al., 2020). The set grows when the distribution is spread out and shrinks when it's concentrated on a few tokens.
+
+Work both on five tokens with probabilities $[0.50, 0.25, 0.12, 0.08, 0.05]$. Top-2 keeps the first two, and $0.50 / 0.75$ and $0.25 / 0.75$ give $0.667$ and $0.333$. For top-p with $p_{\text{top}} = 0.9$, the running totals are 0.50, 0.75, 0.87 and 0.95. The fourth token crosses 0.9, so it's kept and the fifth is dropped. Dividing each kept value by their total, 0.95, gives 0.526, 0.263, 0.126 and 0.084. The `cut` function above does the same:
+
+```python
+q = torch.tensor([0.50, 0.25, 0.12, 0.08, 0.05])
+print("top-2     ", [round(v, 3) for v in cut(q, k=2).tolist()])
+print("top-p 0.9 ", [round(v, 3) for v in cut(q, p_top=0.9).tolist()])
+```
+
+```output
+top-2      [0.667, 0.333, 0.0, 0.0, 0.0]
+top-p 0.9  [0.526, 0.263, 0.126, 0.084, 0.0]
+```
+
+<figure>
+<CutsFigure />
+<figcaption>Figure 3. Top-k and top-p on five tokens. Top-2 cuts after the second bar. Top-p at 0.9 keeps bars until their running total reaches 0.9, which takes four. The bottom two rows give each rule's kept probabilities after renormalizing.</figcaption>
+</figure>
+
+Now apply them to the toy at $T = 2$ after "and the ", 1,000 draws each:
+
+```python
+generator = torch.Generator().manual_seed(0)
+for name, rule in [("top-2", {"k": 2}), ("top-p 0.9", {"p_top": 0.9})]:
+    p = cut(probs("and the ", 2.0), **rule)
+    draws = torch.bincount(torch.multinomial(p, 1000, replacement=True, generator=generator), minlength=len(vocab))
+    print(f"{name:10}", {vocab[i]: draws[i].item() for i in range(len(vocab)) if draws[i] > 0})
+```
+
+```output
+top-2      {'c': 559, 'd': 441}
+top-p 0.9  {'a': 16, 'c': 544, 'd': 417, 'l': 23}
+```
+
+The 138 stray draws over 24 characters shrink to none with top-2, and to 39 over two characters with top-p, which kept four characters this time. In practice:
+
+- Greedy, for outputs that are as repeatable as possible. The same logits always give the same pick, though a served model can still vary slightly between runs.
+- Sampling at a moderate temperature with a cut tail, for varied text. Top-p was a common choice as of October 2026.
+
+All of these are generation-time settings that one set of weights runs under. This guide treats decoding as one rule per step; production systems layer more on top, such as stop sequences (strings that end generation when they appear), penalties for repeating tokens and constraints that force a format. Guides 10 and 11 cover some of them.
+
+## The running example
+
+Back to "The cat sat on the" (token IDs 464, 3797, 3332, 319, 262) and GPT-2 small. Its weights are a 548 MB download, too much to run in every reader's session, so this block is shown but not run here. The functions live in `series/running-example.py`, which pins the model revision, checks the file's hash and writes out GPT-2's forward pass in a few lines of PyTorch.
+
+```python norun
+import runpy
+script = runpy.run_path("series/running-example.py")         # needs the 548 MB weights file
+for T in [0.5, 1.0, 2.0]:
+    print(T, script["top_k"](5, T)[0])                         # the 5 most probable next tokens at T
+share, rank, p_mat, kept = script["tail_stats"]()                  # at T = 1
+print("top-5 share", share, "| \" mat\" rank", rank, "p", p_mat, "| top-p keeps", kept)
+```
+
+Its output, from a run of that script:
+
+```output
+0.5 [(' floor', 0.249), (' bed', 0.182), (' couch', 0.125), (' ground', 0.116), (' edge', 0.098)]
+1.0 [(' floor', 0.076), (' bed', 0.065), (' couch', 0.054), (' ground', 0.052), (' edge', 0.048)]
+2.0 [(' floor', 0.006), (' bed', 0.005), (' couch', 0.005), (' ground', 0.005), (' edge', 0.004)]
+top-5 share 0.296 | " mat" rank 31 p 0.004 | top-p keeps {0.5: 17, 0.9: 728}
+```
+
+The model's favorite is " floor", but at $T = 1$ it's barely a favorite. The top five keep the same order at all three temperatures; only their shares change, from 0.249 for " floor" at $T = 0.5$ to 0.006 at $T = 2$. The top five together hold 0.296 of the probability (0.295 from the rounded values), and the rest is spread thinly. " mat", the children's-reader answer, ranks 31st at 0.004. At $T = 1$, top-p needs 17 tokens to reach 0.5 and 728 to reach 0.9, the last line's numbers. On the toy it kept only four, even at $T = 2$, because GPT-2 is far less sure what comes next than a model that memorized 128 characters.
+
+## What an output probability is not
+
+For now, take a model straight out of next-token training; Guides 8 and 9 show how further training moves these probabilities toward answers people prefer, so they stop being a pure estimate of how text continues. For that model, a probability is its estimate of how text continues, learned from text. It isn't a measure of truth. A fluent false sentence can be highly probable, because sentences like it were common in the training data, and a true but unusual one can be improbable.
+
+Whether the probabilities at least match how often the model is right is a question of **calibration**: a calibrated model is right about 70% of the time when it says 0.7. The GPT-4 report found its pre-trained model, the one straight out of next-token training, well calibrated on a multiple-choice test, and the model after post-training, the further training that turns it into an assistant (Guides 8 and 9), much less so ([OpenAI, 2023](https://arxiv.org/abs/2303.08774)). Nothing in this mechanism checks facts. Next-token training pushes the probabilities to match how often text continues a certain way, not how often a statement is true, so a model "knows when it doesn't know" only where those two happen to coincide.
+
+The objective itself is simple: at every position, raise the probability of the token that actually came next. Guide 7 runs exactly that over as much text as can be gathered, trillions of tokens for recent models.

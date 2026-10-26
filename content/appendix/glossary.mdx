@@ -1,0 +1,139 @@
+# Glossary
+
+One term per concept, as used in Guides 1–6. Declared synonyms are other names you'll meet in the literature.
+
+| Term (used in the guides) | Definition | Declared synonyms | Guide |
+|---|---|---|---|
+| token | A unit of text from the model's fixed vocabulary, often a piece of a word. | piece (informal, for a sub-word token) | 2 |
+| embedding | The learned vector for a token ID, a row of $W_E$. | token embedding, input embedding; row (of the table); vector | 3 |
+| residual stream | A token's running vector, which every attention step and MLP reads and adds to; all tokens' streams together are the $n \times d_{\text{model}}$ matrix $X$. | hidden states (per position); stream | 5 |
+| logits | The network's raw output scores, one per option, before softmax; in an LLM, one per vocabulary entry. | — | 1 |
+| parameter | One of the adjustable numbers that set what a network computes; all of them together are $\theta$. | knob (informal) | 1 |
+| weight | The number a neuron multiplies one of its inputs by; an entry of $W$. | — | 1 |
+| bias | The number a neuron adds after its weighted sum; an entry of $b$. | — | 1 |
+| neuron | A weighted sum of inputs plus a bias, passed through an activation function; output-layer neurons omit the activation. | — | 1 |
+| activation function | A fixed function applied to each neuron's sum separately; ReLU, $\max(0,\cdot)$, unless stated. | — | 1 |
+| layer | Many neurons reading the same input, computed as one matrix multiply; a hidden layer sits between input and output. In Guides 3–4, "a layer of the transformer" meant the larger unit that Guide 5 names a transformer block; from Guide 5 on "layer" is again one matrix multiply. | — | 1 |
+| forward pass | Running an input through the layers to get the output. | — | 1 |
+| one-hot vector | A row of zeros with a single 1 in the slot of the item it stands for. | — | 1 |
+| softmax | Exponentiate each logit and divide by the total, giving positive numbers that sum to 1. | — | 1 |
+| loss | One number that is large when the network is badly wrong and small when nearly right. | — | 1 |
+| cross-entropy | The negative natural log of the probability given to the correct answer, averaged over examples. | — | 1 |
+| gradient | The slope of the loss with respect to each parameter, one slope per parameter; also used for the slope with respect to any intermediate quantity (logits, hidden values). | slope; rate (for one intermediate quantity with respect to another) | 1 |
+| gradient descent | Repeatedly moving every parameter a small step against its gradient. | — | 1 |
+| learning rate | The multiplier $\eta$ that sets the size of each gradient-descent step. | stride (informal) | 1 |
+| backpropagation | Computing every parameter's gradient in one pass from the loss back to the input, by the chain rule. | backward pass | 1 |
+| example | One input paired with its correct answer (in Guide 1, a character and the character that follows it). | training pair | 1 |
+| training | Running the procedure that fits something to data: for a network, the loop that changes the parameters to lower the loss; for a tokenizer (Guide 2), counting and merging to build the vocabulary. | learning (of a vocabulary or merge) | 1 |
+| inference | Running only the forward pass with the parameters fixed. | — | 1 |
+| correct answer | What the network should have output for an input; for a choice among options, the index of the right one. | target, actual (in "predicted minus actual") | 1 |
+| chain rule | Rates along a chain of dependent quantities multiply. | — | 1 |
+| hidden layer | A layer between the input and the output layer; the output layer is the last layer, which produces the logits. | — | 1 |
+| ReLU | Rectified linear unit, $\max(0,\cdot)$: positive numbers pass, negatives become zero; "the bend" is the corner at zero in its graph and, informally, the non-linearity it supplies; a neuron whose ReLU outputs zero is "switched off". | the bend (informal); switched off / on (informal, of a neuron) | 1 |
+| squared error | The loss $\tfrac{1}{2}(\hat{y} - y)^2$, used only in Guide 1's paper example. | — | 1 |
+| vocabulary | The fixed set of items a model can read or output (27 characters in Guide 1; tokens from Guide 2), written $\mathcal{V}$. | list (informal) | 1 |
+| model | A trained function; the same thing as the network (Guide 1's toy network, or the LLM from Guide 2 on). | network | 1 |
+| nudge test | Estimating a slope by changing one quantity slightly and dividing the change in loss by the size of the nudge. | — | 1 |
+| hidden value | A number a hidden layer outputs after its activation function; the values for one input form the hidden row $h$. In memory budgets (Guides 7–8), "activations" means all intermediate values kept for backpropagation. | hidden row (all of one input's values); activations | 1 |
+| LLM | Large language model: the kind of model this series explains, which outputs a probability for every token in its vocabulary. | language model | 1 |
+| token ID | A token's index in the vocabulary, an integer counted from 0; the only form in which a model sees text. | ID | 2 |
+| tokenizer | The program that holds the vocabulary and converts text to token IDs and back; trained once, before the model, then frozen. | — | 2 |
+| encode | Turn text into a sequence of token IDs. | — | 2 |
+| decode | Turn a sequence of token IDs back into text. Unrelated to decoding (Guide 6), the rule that picks the next token, and to the decode phase (Guide 10). | — | 2 |
+| unknown token | A placeholder ID (`<unk>`) that a tokenizer substitutes for anything not in its vocabulary. | — | 2 |
+| merge | One step of byte-pair encoding: the most frequent adjacent pair of tokens glued into a new vocabulary entry. Unrelated to merging an adapter (Guide 8). | — | 2 |
+| byte-pair encoding (BPE) | Building a vocabulary by repeated merges, starting from single symbols. | BPE | 2 |
+| pre-tokenization | Splitting text into words, each keeping its leading space, before merges are counted or applied; merges never cross a word boundary. | — | 2 |
+| byte | A number from 0 to 255; all stored text is a sequence of bytes. | — | 2 |
+| UTF-8 | The standard rule for turning characters into bytes: one byte for plain English characters, two to four for others. | — | 2 |
+| byte-level BPE | Byte-pair encoding whose starting vocabulary is the 256 byte values, so nothing is ever unknown. | — | 2 |
+| sequence length | The number of tokens in an input, $n$. | — | 2 |
+| context length | The largest number of tokens a model can read at once. | — | 2 |
+| lossless | Of a tokenizer: decoding always returns exactly the text that was encoded. | — | 2 |
+| trainer | The program that builds a tokenizer's merge list and vocabulary from a sample of text. | — | 2 |
+| text normalization (optional) | Changing text before tokenizing it, such as lowercasing or stripping accents; GPT-2's tokenizer does none. Unrelated to layer normalization. | normalization (inside Guide 2 only) | 2 |
+| embedding table | The matrix $W_E$ holding one embedding per vocabulary entry, $\lvert\mathcal{V}\rvert \times d_{\text{model}}$. | table | 3 |
+| dense vector | A vector much narrower than the vocabulary (far fewer values than there are vocabulary entries) in which any value can be nonzero. | — | 3 |
+| dot product | Multiply two vectors slot by slot and add the results; large when they point the same way. | — | 3 |
+| cosine similarity | The dot product divided by both vectors' lengths; ranges from −1 to 1. | cosine | 3 |
+| distributional hypothesis | Words that occur in similar contexts tend to have similar meanings. | — | 3 |
+| skip-gram | A network trained to predict the words near a given word; its input-side table holds the word embeddings. | — | 3 |
+| word2vec | The 2013 method, software and papers that popularized learning word embeddings by predicting neighbors; its two architectures are skip-gram and CBOW. | — | 3 |
+| principal component analysis (PCA) | Finding the directions along which a set of vectors varies most; used to draw embeddings in 2-D. | PCA | 3 |
+| static embedding | An embedding that is the same wherever its token appears: a row of the table. | — | 3 |
+| contextual embedding | A vector for a token that depends on the surrounding text; produced by the layers after the table. | — | 3 |
+| weight tying (optional) | Using $W_E$ also as the output matrix that turns final vectors into logits. | — | 3 |
+| length (of a vector) | The square root of the sum of its squared values, $\lVert u \rVert$; never the number of entries, which is the vector's width or size. | norm | 3 |
+| lookup | Fetching a token's row of the embedding table by its ID; same result as multiplying its one-hot vector by $W_E$. | table lookup | 3 |
+| perplexity (t-SNE setting) | A t-SNE setting, roughly how many nearby points each point is assumed to be grouped with; unrelated to the language-model metric. | — | 3 |
+| transformer | The model design built from a stack of transformer blocks between the embeddings and an output layer; "stack of layers" in Guides 3–4. | — | 5 |
+| neighbor | In skip-gram, a word within a fixed number of positions (2 in the toy) of a given word in the text; not used for vectors that are close together (say "nearby points"), except inside the proper names t-SNE and "nearest neighbors" (Guide 12's search term, always written in full). | — | 3 |
+| CBOW (continuous bag of words) (optional) | word2vec's other architecture: predicts a word from its neighbors. | — | 3 |
+| negative sampling (optional) | Training skip-gram to tell real neighbors from a few randomly drawn words, in place of a full softmax. | — | 3 |
+| singular value decomposition (SVD) | Factoring a matrix into three pieces; used in Guide 3 only to compute PCA directions. | SVD | 3 |
+| t-SNE | t-distributed stochastic neighbor embedding: a method for drawing vectors in 2-D whose picture depends strongly on its perplexity setting. | — | 3 |
+| recurrent network (optional) | An older design that reads tokens one at a time and carries a running summary. | — | 3 |
+| GloVe (optional) | A 2014 method that fits word embeddings to a table of how often each pair of words occurs together, instead of predicting neighbors. | — | 3 |
+| hierarchical softmax (optional) | One of word2vec's two cheaper replacements for the full softmax over the vocabulary; named only, not explained. | — | 3 |
+| ELMo (optional) | A 2018 model that produced contextual embeddings with recurrent networks. | — | 3 |
+| pooling | Combining the embeddings of several tokens into one vector, in Guide 3 by averaging; the result ignores token order. | averaging (in Guide 3) | 3 |
+| attention | Rebuilding each token's vector as a softmax-weighted average of value vectors, with weights from query–key dot products. | — | 4 |
+| query | The vector a token's scores are computed from: what it is looking for; a row of $Q$. | — | 4 |
+| key | The vector other tokens' queries are compared against; a row of $K$. | — | 4 |
+| value | The vector a token hands over to tokens that draw on it; a row of $V$. | — | 4 |
+| score (attention) | The dot product of one query with one key; from Guide 4 section 4 on, divided by $\sqrt{d_k}$. | — | 4 |
+| attention weight | A softmaxed score: how much of one token's value goes into another token's new vector; each token's weights sum to 1. | weight (inside Guides 4–5, only where no parameter count is in the same paragraph); grid (of weights; "grid of scores" is the same $n \times n$ layout holding scores, always qualified); pattern (of weights) | 4 |
+| self-attention | Attention in which queries, keys and values all come from the same sequence. | — | 4 |
+| scaled dot-product attention | Attention with scores divided by $\sqrt{d_k}$ before the softmax. | — | 4 |
+| causal mask | The matrix $M$ added to the scores so each position draws only from itself and earlier positions. | mask | 4 |
+| multi-head attention | Several attention computations run in parallel on the same input and recombined by $W^O$. | — | 4 |
+| head | One of the parallel attention computations in multi-head attention, with its own $W^Q$, $W^K$, $W^V$. | — | 4 |
+| position vector | A vector added to a token's embedding to mark where the token sits; GPT-2's are rows of a learned table $W_P$. | position embedding | 4 |
+| draws from | The series' verb for attention: a token draws information from the tokens it gives weight to. Not "focuses on" or "pays attention to". | draws on; look at (titles and headings only) | 4 |
+| generation | Producing text one token at a time: inference repeated, each new token appended to the input before the next is predicted. | — | 4 |
+| soft lookup | The guide's picture of attention: a query compared with every key, returning a weighted average of all values; a hard lookup (a dictionary) returns the one exactly matching key's value. | hard lookup (the contrast) | 4 |
+| position table | The matrix $W_P$ holding one position vector per position, $n_{\max} \times d_{\text{model}}$. | position embedding table | 4 |
+| rotary position embedding (optional) | Position encoded by rotating each query and key inside attention by an angle set by its position; named only. | — | 4 |
+| sinusoidal position encoding (optional) | Fixed sine and cosine patterns added to the embeddings in place of a learned table; named only. | — | 4 |
+| variance, standard deviation | Variance: the average squared distance of a set of numbers from their mean; standard deviation: its square root, the typical spread. | spread (informal) | 4 |
+| GPT-2 / GPT-2 small | GPT-2: the 2019 model family the series takes as its example; GPT-2 small: its smallest size ($d_{\text{model}} = 768$, 12 blocks (called layers before Guide 5), 12 heads, context length 1,024), the one whose numbers the guides quote. | — | 2 |
+| word ID | In Guide 3's toy only, a word's index in the 12-word vocabulary; plays the role of a token ID while whole words stand in for tokens. | — | 3 |
+| MLP | Multilayer perceptron: Guide 1's two-layer network used inside a block, applied to each token's row separately with the same weights. | per-token network; feed-forward network (other sources; the "ff" in $d_{\text{ff}}$) | 5 |
+| GELU | Gaussian error linear unit: GPT-2's activation function, like ReLU with the corner at zero rounded off. | — | 5 |
+| residual connection | Adding a part's output to its input instead of replacing it, $x \leftarrow x + f(x)$. | the addition(s) (informal) | 5 |
+| layer normalization | Rescaling one token's row to mean 0 and variance 1, then applying a learned scale $\gamma$ and shift $\beta$. Unrelated to Guide 2's text normalization. | normalization (from Guide 5 on); layer norm; LN (in equations) | 5 |
+| pre-LN | Normalizing the input of each part and leaving the stream unnormalized, plus one normalization at the top of the stack; GPT-2's arrangement. | — | 5 |
+| post-LN | Normalizing the stream after each addition; the original transformer's arrangement. | — | 5 |
+| transformer block | Attention then an MLP, each fed a normalized copy of the stream and each added back to it; same shape in and out. | block; transformer layer (other sources, and Guides 3–4) | 5 |
+| part (of a block) | Informal word for either attention or the MLP inside a block. | sublayer (in notation.md) | 5 |
+| output layer (of the transformer) | The last step, which turns each token's final row into logits; in GPT-2 it reuses $W_E$. | — | 5 |
+| autograd | PyTorch's automatic backpropagation: it records the forward pass and computes every gradient on `loss.backward()`. | — | 5 |
+| PyTorch | The library the code uses from Guide 5 on (`torch`), for ready-made layers and autograd. | — | 5 |
+| batch | Several inputs run at once: rows of $X$ in Guide 1; from Guide 5, whole sequences stacked on a leading axis of size $B$; from Guide 7, the $B$ windows one training step uses; in Guide 8's SFT loop, 32 (prompt, response) examples; in Guide 10, the sequences decoded together in one step. | minibatch | 1 |
+| Adam | Adaptive moment estimation: the optimizer used from Guide 5 on, a refinement of gradient descent that scales each parameter's step by running averages of its gradient and squared gradient (explained in Guide 7); AdamW is its usual variant for transformers. | optimizer (the general word) | 5 |
+| window | A stretch of the token stream as long as the context, used as one training sequence (16 characters in Guide 5's toy, 32 in Guide 7's, 64 in Guide 8's). | — | 5 |
+| floor (loss floor) | The lowest average loss any predictor can reach on a given set of examples with a given amount of context. | — | 4 |
+| RMSNorm (optional) | Root mean square normalization: divides a row by the root mean square of its values, with no mean subtraction; named only. | — | 5 |
+| encoder, decoder (optional) | The two halves of the original transformer: the encoder reads the input sentence, the decoder writes the output; GPT-2 keeps only the decoder side. | — | 5 |
+| warm-up | A stretch at the start of training where the learning rate is raised slowly from near zero; named only in Guide 5, part of the learning-rate schedule in Guide 7. | — | 5 |
+| piece (of a block) | Informal word for any of a block's four ingredients: attention, the MLP, the residual connections and layer normalization. Wider than "part". | — | 5 |
+| character ID | In the character-level toys (Guides 1, 4, 5), a character's index in the 27-character vocabulary; plays the role of a token ID while single characters stand in for tokens. | — | 1 |
+| starting parameters | The small random values a network's parameters hold before training. | initialization (other sources, and Guide 5) | 1 |
+| memorization | Reaching a low training loss by reproducing the training text, which shows nothing about text the model hasn't seen; held-out text (Guide 7) tells it apart from learning. | memorizing | 5 |
+| next-token distribution | The softmax of the last position's logits: a probability for every token in the vocabulary, summing to 1. | $p$; distribution | 6 |
+| teacher forcing | Training every position at once on the true preceding tokens, never the model's own guesses; the causal mask makes it legal. | — | 6 |
+| perplexity | $e^{\mathcal{L}}$: the effective number of equally likely options per step; comparable only between models that share a tokenizer. Unrelated to t-SNE's perplexity setting (Guide 3). | PPL | 6 |
+| nat | The unit of a loss computed with the natural log. | nats | 6 |
+| decoding | The rule that picks one token from the next-token distribution at each generation step; it sits outside the network. Unrelated to the tokenizer's decode (Guide 2) and to the transformer's decoder half (Guide 5). | decoding rule | 6 |
+| greedy decoding | Always picking the most probable token; deterministic, and prone to repetition loops. | greedy | 6 |
+| sampling | Drawing the next token at random in proportion to its probability. | — | 6 |
+| temperature | $T$ in $\operatorname{softmax}(z/T)$: below 1 sharpens the distribution, above 1 flattens it, toward 0 becomes greedy. | — | 6 |
+| top-k sampling | Keep the $k$ most probable tokens, renormalize, sample. | top-k | 6 |
+| top-p sampling | Keep the smallest set of top tokens whose probabilities reach $p_{\text{top}}$, renormalize, sample. | nucleus sampling; top-p | 6 |
+| beam search (optional) | Keeping the several most probable partial sequences at each step instead of one token. | beam | 6 |
+| calibration | How well a model's probabilities match how often it is right: calibrated means right about 70% of the time when it says 0.7. | calibrated | 6 |
+| end-of-text token | GPT-2's special token 50256; in generation, choosing it ends the loop. | — | 2 |
+| prompt | The text given to the model before generation starts; processed in one parallel pass. | — | 6 |
+| stop sequence (optional) | A string that ends generation when it appears in the output; named in Guide 6, used in Guide 8's toy (" and"). | stop marker, marker (Guide 8, informal) | 6 |
+| repetition penalty (optional) | A generation-time adjustment that lowers the probability of tokens already produced; named only. | penalties for repeating tokens | 6 |
+| loss floor | (see "floor (loss floor)"); Guide 1's 0.884 is the one-character loss floor, never "limit" from Guide 6 on. | floor | 1 |

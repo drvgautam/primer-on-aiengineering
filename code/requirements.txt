@@ -1,0 +1,10 @@
+# The guides' printed outputs were produced with exactly these versions. Keep them pinned:
+# a different numpy, torch or tiktoken can change the last digits of what the notebooks print.
+numpy==2.2.6
+tiktoken==0.14.0
+# The line below selects the CPU-only torch build (about 200 MB to download).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+# Running the notebooks
+jupyterlab==4.6.4
+ipykernel==7.3.0

@@ -1,0 +1,380 @@
+---
+title: "Attention: letting tokens look at each other"
+guide: 4
+slug: attention
+part: How LLMs work
+---
+import { SoftLookupFigure, MaskFigure, HeadsFigure, OrderFigure } from "../components/figures/attention"
+
+# Attention: letting tokens look at each other
+
+Recall from Guide 3 that an embedding table gives every token one row of numbers, and that the row is the same wherever the token appears. That left two gaps. The token ` bank` has ID 3331 beside a river and at a lender, so both uses get the same vector. And averaging the rows of "the cat saw the dog" gives exactly the average for "the dog saw the cat", so the order of the words is lost.
+
+**Attention** closes the first gap. It rebuilds each token's vector as a weighted mix of the vectors of the tokens around it, and it computes the weights from the tokens themselves. Position information closes the second. By the end of this guide you'll be able to compute an attention output by hand, read its equation symbol by symbol, draw the mask that stops a model from reading ahead, and say what attention costs as the input gets longer.
+
+## Why context pays
+
+Recall from Guide 1 that the toy network predicted the next character from the current one, and that its loss stalled near 0.884. That number was a floor. Cross-entropy is the negative log of the probability given to the correct next character, and 0.884 is its average for a predictor that knows exactly how often each character follows each other character in the text.
+
+The same counting works for longer contexts. For each number of characters of context $k$, the code below counts what follows every distinct context in Guide 1's toy text. It prints $k$, the lowest possible loss, and the number of distinct contexts. The code in this guide uses numpy 2.2.6, the version pinned in the series `requirements.txt` as of October 2026. Its blocks run in order and share variables.
+
+```python
+import numpy as np
+from collections import Counter
+np.set_printoptions(precision=3, floatmode="fixed", suppress=True)
+text = ("the cat sat on the mat and the dog sat on the log and the "
+        "cat saw the dog then the dog ran to the cat and the cat ran on the mat")
+for k in range(6):
+    start = max(k, 1)                                  # k = 0 is scored on the same 127 characters as k = 1
+    seen = Counter((text[i - k:i], text[i]) for i in range(start, len(text)))   # (context, next character)
+    context = Counter()
+    for (c, ch), count in seen.items():
+        context[c] += count
+    floor = -sum(count * np.log(count / context[c]) for (c, ch), count in seen.items()) / sum(seen.values())
+    print(k, f"{floor:.3f}", len(context))
+```
+
+```output
+0 2.318 1
+1 0.884 15
+2 0.337 32
+3 0.296 46
+4 0.212 59
+5 0.179 69
+```
+
+With no context at all, the best a predictor can do is the overall character frequencies, for a loss of 2.318. One character of context gets it to 0.884, which is where Guide 1's network sat. A second character cuts the floor to 0.337, less than half of that. The later rows flatter the idea. The text is 128 characters long, so by $k = 5$ there are 69 distinct contexts for 123 predictions, and a context that occurs once has a certain next character. The exact values are shaky, but the direction holds: a model that sees more of what came before can predict better.
+
+Guide 1's design can't stretch to use that. Feeding it several characters side by side would take a separate block of parameters for each position, and the number of positions would be fixed for good.
+
+How can a network use a variable number of earlier tokens, counting each by a different amount, without a separate set of parameters for every position?
+
+## The idea: a soft lookup
+
+A Python dictionary does a hard lookup. You hand it a query, it finds the one key that matches exactly, and it returns that key's value. Attention is a soft version of the same thing. The query is compared with every key, each comparison becomes a weight, and the result is a weighted average of all the values.
+
+In attention, every token gets three vectors. Its **query** is the vector that gets compared against keys, loosely what the token is looking for. Its **key** is what queries are compared against. Its **value** is what it hands over to a token that draws on it. The comparison is the dot product from Guide 3: multiply two vectors slot by slot and add, which gives a large number when they point the same way. A softmax over one token's scores then turns them into **attention weights**, positive numbers that sum to 1 and say how much of each value goes into that token's new vector.
+
+Take the three tokens of "the cat sat" and compute the new vector for "sat". As in Guide 3, whole words stand in for tokens in this guide's toy examples. Every vector has 2 numbers, picked by hand so the arithmetic is easy:
+
+| Token | Key | Value |
+|---|---|---|
+| the | $[0, 0]$ | $[1, 0]$ |
+| cat | $[2, 0]$ | $[0, 1]$ |
+| sat | $[1, 1]$ | $[1, 1]$ |
+
+The query of "sat" is $[1, 0]$. Three steps give its new vector.
+
+1. Score the query against each key with a dot product. For "the" that's $1 \cdot 0 + 0 \cdot 0 = 0$, for "cat" it's $1 \cdot 2 + 0 \cdot 0 = 2$, and for "sat" itself it's $1 \cdot 1 + 0 \cdot 1 = 1$.
+2. Turn the scores $[0, 2, 1]$ into weights with softmax. Recall from Guide 1 that softmax exponentiates each score and divides by the total, and that it turned $[2, 1, 0]$ into 0.665, 0.245 and 0.090. These are the same three scores in a different order, so the weights are 0.090, 0.665 and 0.245.
+3. Add up the values, each multiplied by its weight.
+
+$$
+0.090 \cdot [1, 0] + 0.665 \cdot [0, 1] + 0.245 \cdot [1, 1] = [0.335, 0.910]
+$$
+
+<figure>
+<SoftLookupFigure />
+<figcaption>Figure 1. One attention output, for "sat": scores against all three keys, then softmax weights, then the weighted sum of the values.</figcaption>
+</figure>
+
+The code prints the same scores, weights and output.
+
+```python
+def softmax(z):
+    z = z - z.max(axis=-1, keepdims=True)              # softmax only sees differences; this stops exp overflowing
+    return np.exp(z) / np.exp(z).sum(axis=-1, keepdims=True)
+K = np.array([[0., 0.], [2., 0.], [1., 1.]])           # (3, 2) keys of the, cat, sat
+V = np.array([[1., 0.], [0., 1.], [1., 1.]])           # (3, 2) values of the, cat, sat
+q = np.array([1., 0.])                                 # (2,) query of sat
+scores = K @ q                                         # (3,) one score per key
+weights = softmax(scores)                              # (3,) sums to 1
+print(scores, weights, weights @ V)
+```
+
+```output
+[0.000 2.000 1.000] [0.090 0.665 0.245] [0.335 0.910]
+```
+
+The new vector for "sat" is mostly the value of "cat", because the query of "sat" matched the key of "cat" best. Put a different word in the middle, with a different key and value, and the output for "sat" changes. Guide 3 called a table row a static embedding, the same in every context. This output is the start of a contextual one. A token is also one of its own sources: "sat" put a weight of 0.245 on itself.
+
+Push the score for "cat" from 2 up to 20 and softmax puts more than 0.999999 of the weight on it, so the output is the value of "cat" almost exactly. That's a hard lookup. Scores that are close together give a blend.
+
+## Where queries, keys and values come from
+
+Nobody picks these vectors by hand in a real model. Each one is computed from the token's own vector by a learned matrix. Recall from Guide 3 that a sequence of $n$ tokens enters the model as a matrix $X$ with one row per token and $d_{\text{model}}$ columns. Multiplying $X$ by three different matrices gives all the queries, keys and values at once:
+
+$$
+Q = XW^Q, \qquad K = XW^K, \qquad V = XW^V
+$$
+
+Row $i$ of $Q$ is the query of token $i$, and likewise for the keys in $K$ and the values in $V$. The matrices $W^Q$ and $W^K$ have $d_{\text{model}}$ rows and $d_k$ columns, where $d_k$ is the width of a query or a key. Those two widths must match, since queries are dotted with keys. $W^V$ has $d_{\text{model}}$ rows and $d_v$ columns, where $d_v$ is the width of a value. Because queries, keys and values all come from the same sequence $X$, this is **self-attention**, and it's the only kind used by GPT-2, the 2019 model this series takes as its example ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)).
+
+Why three matrices and not one? Suppose you skipped them and used each token's own vector as its query, key and value. The score between two tokens would be the plain dot product of their embeddings, which is high for tokens that are alike. But training might find it useful for a verb to draw from a noun, say, and to ignore other verbs. The score from "sat" to "cat" would also always equal the score from "cat" to "sat", because a dot product doesn't care which vector comes first. Separate matrices for queries and keys remove both restrictions, and a third for values lets a token pass on something other than what it was matched by.
+
+Scoring every query against every key is one more matrix product, $QK^\top$, where $K^\top$ is $K$ with its rows turned into columns. The result has $n$ rows and $n$ columns, and the entry in row $i$, column $j$ is the dot product of token $i$'s query with token $j$'s key. So row $i$ holds all of token $i$'s scores. Here are the shapes, in general and for the running example "The cat sat on the" in GPT-2 small:
+
+| Matrix | Shape | Running example |
+|---|---|---|
+| $X$ | $n \times d_{\text{model}}$ | $5 \times 768$ |
+| $Q$ and $K$ | $n \times d_k$ | $5 \times 64$ |
+| $QK^\top$ | $n \times n$ | $5 \times 5$ |
+
+GPT-2 small uses $d_k = 64$, and the section on heads shows where that number comes from.
+
+Some simplifications are in play:
+
+- $W^Q$, $W^K$ and $W^V$ are parameters, trained by backpropagation like every weight in Guide 1. This guide's code fills them with random numbers to show the mechanics, so the attention weights it prints are untrained and mean nothing. Guide 5 looks at a trained model.
+- For now there's one set of queries, keys and values. A later section runs several side by side.
+- The equations leave out bias terms, and so far the attention weights are a plain softmax over every score. The next two sections divide the scores by a constant and stop each token from drawing on later ones.
+- For now, treat the output of attention as the token's new vector. GPT-2 is a transformer, a stack of identical layers that each contain one attention step. Guide 5 shows that a layer adds the output to the token's old vector and then does more work on the sum.
+
+None of the three matrices mentions a position or a sequence length. The same parameters handle 5 tokens or 500, and the attention weight each token gets is computed fresh from the tokens themselves. So one set of matrices serves any number of earlier tokens, which Guide 1's design couldn't do.
+
+## Keeping the softmax usable: the square root of $d_k$
+
+Dot products spread out as vectors get wider, because each slot adds its own product to the sum. The code below draws 10,000 pairs of random vectors whose entries have a variance of 1, and prints the standard deviation of their dot products at widths 4 and 64.
+
+```python
+rng = np.random.default_rng(0)
+for d_k in (4, 64):
+    uv = rng.normal(size=(10000, 2, d_k))              # 10,000 pairs of random vectors of width d_k
+    print(d_k, f"{(uv[:, 0] * uv[:, 1]).sum(axis=1).std():.2f}")
+rng = np.random.default_rng(0)
+top, top_scaled = [], []
+for trial in range(2000):
+    q64 = rng.normal(size=64)                          # (64,) one random query
+    K64 = rng.normal(size=(16, 64))                    # (16, 64) sixteen random keys
+    top.append(softmax(K64 @ q64).max())               # the largest of the 16 weights
+    top_scaled.append(softmax(K64 @ q64 / np.sqrt(64)).max())
+print(f"{np.mean(top):.3f} {np.mean(top_scaled):.3f}")
+print(softmax(scores / np.sqrt(2)))
+```
+
+```output
+4 1.98
+64 8.01
+0.843 0.247
+[0.140 0.576 0.284]
+```
+
+The spread is 1.98 at width 4 and 8.01 at width 64. Those are close to 2 and 8, the square roots of the widths. Each slot's product has a variance of 1 and the variances of independent terms add, so the sum has a variance of $d_k$ and a standard deviation of $\sqrt{d_k}$ ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)). The third line of output shows what that spread does to softmax. With one query and 16 keys at width 64, the largest weight averages 0.843. One key takes nearly everything, and the other 15 share the rest.
+
+A lopsided softmax has tiny gradients, which is the reason the transformer's authors gave for the scaling that follows. Recall from Guide 1 that a parameter's gradient says how much the loss changes when that parameter is nudged. $W^Q$ and $W^K$ can only change the loss by changing the attention weights. Take the scores $[10, 0, 0]$, which softmax turns into a weight of 0.99991 on the first. Nudge that score up to 10.1 and its weight becomes 0.99992. The weights hardly moved, so the loss hardly moves, so the gradients that reach $W^Q$ and $W^K$ are close to zero and those matrices nearly stop learning. With scores of $[1, 0, 0]$ the same nudge moves the top weight from 0.576 to 0.600, which is a gradient training can use.
+
+To keep the scores on the same scale whatever the width, divide them by $\sqrt{d_k}$ before the softmax. With that division, the average largest weight in the experiment drops from 0.843 to 0.247. The result is **scaled dot-product attention**, the form introduced with the transformer ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)):
+
+$$
+\operatorname{Attention}(Q, K, V) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right) V
+$$
+
+$QK^\top$ holds the scores of every query against every key, $\sqrt{d_k}$ is the square root of the query and key width, softmax runs along each row to give that token's weights, and multiplying by $V$ takes the weighted sum of the values. From here on, $S$ stands for the scaled scores, $S = QK^\top / \sqrt{d_k}$. The last line of output redoes the hand example with $d_k = 2$: the weights become 0.140, 0.576 and 0.284, in the same order as before and closer together.
+
+## No peeking: the causal mask
+
+Recall from Guide 2 that inputs and targets are the same token sequence shifted by one position, so each position is a training pair. For the running example the inputs are tokens 464, 3797, 3332, 319 and the targets are 3797, 3332, 319, 262, so every position has its own next token to predict. A transformer doesn't work through those positions one at a time. Training computes all of them in a single pass. Each position's vector, after the layers have rebuilt it, is turned into logits for the token that follows that position (Guide 6 covers that last step), so $n$ positions give $n$ predictions. Only generation goes one token at a time, because each new token has to exist before the one after it can be predicted.
+
+That single pass has a leak. Position 2, ` cat`, is supposed to predict position 3, ` sat`. But row 2 of the score matrix has a score against every token, including ` sat`. Attention would let position 2 draw on the very token it's meant to predict, and the model would learn to copy. At generation time there is no next token to copy from, so that model would be useless. (The mask stays on during generation, so each position computes what it computed in training.)
+
+The fix is to add a **causal mask** $M$ to the scores before the softmax. $M$ is an $n \times n$ matrix with 0 wherever a token may draw from another (itself and the positions before it) and $-\infty$ wherever it may not. Adding 0 leaves a score alone. Adding $-\infty$ sends it to $-\infty$, and since $e^{-\infty} = 0$, softmax gives that position a weight of exactly 0 while the rest of the row still sums to 1. Here is $M$ for the running example, with one row per query and one column per key:
+
+|  | The | cat | sat | on | the |
+|---|---|---|---|---|---|
+| **The** | 0 | −∞ | −∞ | −∞ | −∞ |
+| **cat** | 0 | 0 | −∞ | −∞ | −∞ |
+| **sat** | 0 | 0 | 0 | −∞ | −∞ |
+| **on** | 0 | 0 | 0 | 0 | −∞ |
+| **the** | 0 | 0 | 0 | 0 | 0 |
+
+The row for ` cat` says it may draw from `The` and from itself, and from nothing after. With the mask, the attention weights are $A = \operatorname{softmax}(S + M)$, taken row by row, and the output is $AV$.
+
+```python
+def attention(X, WQ, WK, WV, causal=True):
+    Q, K, V = X @ WQ, X @ WK, X @ WV                   # (n, d_k), (n, d_k), (n, d_v)
+    S = Q @ K.T / np.sqrt(K.shape[1])                  # (n, n) scaled scores
+    M = np.triu(np.full(S.shape, -np.inf), k=1) if causal else 0   # (n, n) mask: -inf above the diagonal
+    A = softmax(S + M)                                 # (n, n) weights, every row sums to 1
+    return A @ V, A                                    # (n, d_v) new vectors, and the weights
+```
+
+To try it we need embeddings. The next block retrains Guide 3's toy table, 12 words by 4 numbers, with the same code and seed squeezed into fewer lines. Recall that it learns by predicting each word's neighbors within 2 positions, and that "cat" and "dog" ended up with a cosine similarity of 0.95. Then it draws random $4 \times 4$ matrices for $W^Q$, $W^K$ and $W^V$ and runs attention on "the cat sat".
+
+```python
+words = text.split()
+vocab = sorted(set(words))
+ids = np.array([vocab.index(w) for w in words])        # (33,) the text as word IDs
+pairs = [(ids[i], ids[j]) for i in range(33) for j in range(max(0, i - 2), min(33, i + 3)) if i != j]
+inputs, targets = np.array(pairs).T                    # (126,) each: a word, and one of its neighbors
+rng = np.random.default_rng(0)
+E = rng.normal(0, 0.1, (12, 4))                        # (12, 4) embedding table
+W = rng.normal(0, 0.1, (4, 12))                        # (4, 12) output matrix
+for step in range(3001):
+    dz = softmax(E[inputs] @ W)                        # (126, 12) predicted probabilities
+    dz[np.arange(126), targets] -= 1                   # predicted minus correct
+    dW = E[inputs].T @ dz / 126                        # (4, 12)
+    dE = np.zeros_like(E)
+    np.add.at(dE, inputs, dz @ W.T / 126)              # each pair's gradient goes to its word's row
+    E -= 0.5 * dE
+    W -= 0.5 * dW
+
+def embed(sentence):
+    return E[[vocab.index(w) for w in sentence.split()]]   # (n, 4) one row per word
+cat, dog = embed("cat dog")
+print(f"{cat @ dog / (np.linalg.norm(cat) * np.linalg.norm(dog)):.2f}")
+rng = np.random.default_rng(1)
+WQ, WK, WV = (rng.normal(0, 0.5, (4, 4)) for _ in range(3))    # (4, 4) each: random, untrained
+out, A = attention(embed("the cat sat"), WQ, WK, WV)
+print(A, A.sum(axis=1))
+```
+
+```output
+0.95
+[[1.000 0.000 0.000]
+ [0.619 0.381 0.000]
+ [0.757 0.140 0.103]] [1.000 1.000 1.000]
+```
+
+There are zeros above the diagonal, and every row sums to 1. The top-left 1.000 is forced, since the first token has nothing but itself to draw from. Everything else is noise from random matrices. Next come the weights for all five words of the running example, lowercased to fit the toy vocabulary.
+
+```python
+print(attention(embed("the cat sat on the"), WQ, WK, WV)[1])
+```
+
+```output
+[[1.000 0.000 0.000 0.000 0.000]
+ [0.619 0.381 0.000 0.000 0.000]
+ [0.757 0.140 0.103 0.000 0.000]
+ [0.042 0.017 0.899 0.042 0.000]
+ [0.081 0.215 0.135 0.488 0.081]]
+```
+
+<figure>
+<MaskFigure />
+<figcaption>Figure 2. The causal mask on the running example. Rows are queries and columns are keys. Step 1 shows the allowed cells, on and below the diagonal. Step 2 fills them with the untrained toy weights printed above, and every row sums to 1.</figcaption>
+</figure>
+
+Guide 3 said attention lets a token take in information from "other tokens". In GPT-2 that means itself and the tokens before it. Models built to read text, such as BERT, leave the mask off and draw from both sides ([Devlin et al., 2019](https://aclanthology.org/N19-1423/)). And where Guide 1's network saw one character, the last position here can draw on anything before it, up to the model's context length. Being able to draw on a token isn't the same as using it well. Trained models use long inputs unevenly, and information in the middle is used less reliably than information near either end ([Liu et al., 2023](https://arxiv.org/abs/2307.03172)).
+
+## Several heads at once
+
+One set of $W^Q$, $W^K$ and $W^V$ produces one pattern of weights, and a token may need several at once. It might, for example, draw from the noun it belongs to and from the token just before it, and a single softmax would have to split its weight between them and hand back one blend of the two. **Multi-head attention** runs $h$ independent copies of attention in parallel on the same $X$. Each copy is a **head**, with its own three matrices and its own attention weights.
+
+To keep the cost about the same as one wide head, each head is made narrower: $d_k = d_v = d_{\text{model}} / h$. Each head puts out $d_v$ numbers per token, and the $h$ outputs go side by side into one row of $h \cdot d_v$ numbers, where each head's output sits in its own block of slots. So there's a fourth learned matrix, $W^O$, with $h \cdot d_v$ rows and $d_{\text{model}}$ columns, mixes them, so every number in the result can combine all the heads.
+
+<figure>
+<HeadsFigure />
+<figcaption>Figure 3. Multi-head attention. Every head reads the same $X$ and has its own narrow matrices, of width $d_{\text{model}} / h$. The heads' outputs are placed side by side and mixed by a fourth learned matrix, $W^O$, which returns a row of $d_{\text{model}}$ numbers per token.</figcaption>
+</figure>
+
+GPT-2 small has $h = 12$ heads of width 64, and $12 \times 64 = 768$ (the head count is in the [released model's](https://huggingface.co/openai-community/gpt2) configuration). The block below runs those shapes on random numbers. It stores each kind of matrix for all 12 heads as one $768 \times 768$ array, where columns 0 to 63 belong to head 1, the next 64 to head 2, and so on. `split` cuts a product into its 12 slices.
+
+```python
+n, d_model, h = 5, 768, 12
+d_k = d_model // h                                     # 64
+M = np.triu(np.full((n, n), -np.inf), k=1)             # (5, 5) the causal mask from the table
+rng = np.random.default_rng(0)
+X = rng.normal(size=(n, d_model))                      # (5, 768) stand-in for the embedded running example
+WQ_all, WK_all, WV_all, WO = (rng.normal(0, 0.02, (d_model, d_model)) for _ in range(4))   # (768, 768) each
+
+def split(Z):
+    return Z.reshape(n, h, d_k).transpose(1, 0, 2)     # (5, 768) -> (12, 5, 64): one slice per head
+Q, K, V = split(X @ WQ_all), split(X @ WK_all), split(X @ WV_all)
+S = Q @ K.transpose(0, 2, 1) / np.sqrt(d_k)            # (12, 5, 5) one score grid per head
+A = softmax(S + M)                                     # (12, 5, 5)
+joined = (A @ V).transpose(1, 0, 2).reshape(n, d_model)    # (12, 5, 64) -> (5, 768) heads side by side
+print(Q.shape, S.shape, (A @ V).shape, joined.shape, (joined @ WO).shape)
+```
+
+```output
+(12, 5, 64) (12, 5, 5) (12, 5, 64) (5, 768) (5, 768)
+```
+
+Five tokens go in as $5 \times 768$ and come out as $5 \times 768$, having passed through 12 grids of $5 \times 5$ attention weights on the way. The four matrices hold $4 \times 768^2 = 2{,}359{,}296$ parameters in each layer of GPT-2 small. GPT-2 also adds a bias row of 768 numbers after each of the four products, which this guide's equations leave out. With the biases the count is 2,362,368.
+
+Attention is still the smaller part of a layer. The other part, a network applied to each token separately, holds about twice as many parameters as attention does. Guide 5 opens it up.
+
+## Order: giving tokens a position
+
+Attention as built so far has a blind spot. It's total with the mask off, which is how the code below runs. With the mask on a little order leaks through, as the accordion at the end of this section shows. A token's output is a weighted sum over the tokens, and nothing in a sum records which term came first. Reverse the rows of $X$ and you get the same output rows, reversed. The block below checks that on "the cat saw the dog", and then compares the output for "saw" in that sentence and in "the dog saw the cat".
+
+```python
+X1, X2 = embed("the cat saw the dog"), embed("the dog saw the cat")   # (5, 4) each
+out1, _ = attention(X1, WQ, WK, WV, causal=False)
+out2, _ = attention(X2, WQ, WK, WV, causal=False)
+flipped, _ = attention(X1[::-1], WQ, WK, WV, causal=False)       # the same rows in reverse order
+print(np.allclose(flipped, out1[::-1]), np.allclose(out1[2], out2[2]))
+pos = np.random.default_rng(2).normal(0, 1.0, (5, 4))  # (5, 4) one random vector per position
+out1, _ = attention(X1 + pos, WQ, WK, WV, causal=False)
+flipped, _ = attention(X1[::-1] + pos, WQ, WK, WV, causal=False)
+print(np.allclose(flipped, out1[::-1]), f"{np.abs(flipped - out1[::-1]).max():.3f}")
+```
+
+```output
+True True
+False 0.749
+```
+
+Both checks on the first line print `True`. The reversed sentence gives the reversed outputs, and "saw" gets an identical vector whether the cat saw the dog or the dog saw the cat.
+
+The fix is to make the same token at a different position a different input. Add a **position vector** to each token's embedding before the first layer: one vector for position 1, another for position 2, and so on. It's also called a position embedding. The second half of the block does that with random position vectors, and the second line of output shows the reversal check now fails, with outputs that differ by up to 0.749.
+
+<figure>
+<OrderFigure />
+<figcaption>Figure 4. Order blindness and its fix. Step 1: with no mask and no position vectors, reversing the input only reverses the output. Step 2: with a position vector added to each row, the outputs differ.</figcaption>
+</figure>
+
+GPT-2 learns its position vectors, as its predecessor did ([Radford et al., 2018](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf)). It has a second table, $W_P$, with $n_{\max} = 1{,}024$ rows of 768 numbers, one row per position, trained by backpropagation like $W_E$ ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)). The input to its first layer is the sum of two lookups:
+
+$$
+X = W_E[\text{ids}] + W_P[0, \ldots, n-1]
+$$
+
+Here $W_E[\text{ids}]$ is the $n$ rows of the embedding table picked out by the token IDs, and $W_P[0, \ldots, n-1]$ is the first $n$ rows of the position table, counted from 0 as in numpy, so position 1 uses row 0. Guide 3 said to treat $X$ as the token embeddings alone, and this is the full version. Adding might seem to blur a token with its position. It works because a learned matrix such as $W^Q$ can read some directions of a 768-number vector and ignore others. $W_E$ and $W_P$ are trained together, so training can put position in directions the token embeddings use little. The table also sets a hard limit. $W_P$ has 1,024 rows, so GPT-2's context length is 1,024 tokens: there is no row to add for position 1,025.
+
+<details>
+<summary>Other ways to encode position</summary>
+
+The original transformer added fixed patterns of sines and cosines of different wavelengths, which need no training ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)). Rotary position embeddings add nothing to $X$. They rotate each query and key inside attention by an angle that depends on its position, so that a score depends on how far apart two tokens are ([Su et al., 2021](https://arxiv.org/abs/2104.09864)). LLaMA, a 2023 model family, uses them ([Touvron et al., 2023](https://arxiv.org/abs/2302.13971)).
+
+A causal mask also leaks some order by itself. With the mask on, each position draws from a different number of earlier tokens, and trained models with no position vectors at all still pick up position from that ([Haviv et al., 2022](https://arxiv.org/abs/2203.16634)). The toy shows the leak. With the mask on and no position vectors, "saw" gets different outputs in the two sentences, because the tokens before it differ.
+
+```python
+masked1, _ = attention(X1, WQ, WK, WV)
+masked2, _ = attention(X2, WQ, WK, WV)
+print(np.allclose(masked1[2], masked2[2]), f"{np.abs(masked1[2] - masked2[2]).max():.3f}")
+```
+
+```output
+False 0.020
+```
+
+The largest difference is only 0.020, because the embeddings of "cat" and "dog" point in nearly the same direction (cosine 0.95).
+
+</details>
+
+## The price of looking at everything
+
+Every token is scored against every token, so each head in each layer fills an $n \times n$ grid of scores. Guide 2 said a model spends computation on every token it reads, and this grid shows how fast that cost grows.
+
+```python
+n_max = 1024
+print(4 * d_model**2, 4 * d_model**2 + 4 * d_model, n_max * d_model)
+print(n * n, h * n * n, n_max**2, h * n_max**2)
+```
+
+```output
+2359296 2362368 786432
+25 300 1048576 12582912
+```
+
+The first line repeats the parameter counts and adds the 786,432 of $W_P$. The second line counts scores. The running example needs 25 per head, or 300 across the 12 heads of a layer. At GPT-2's limit of 1,024 tokens a head computes 1,048,576, and a layer 12,582,912. The count grows with the square of $n$, so doubling the sequence length quadruples it.
+
+This guide computes the full grid of scores every time, which isn't necessary. During generation, the keys and values of earlier tokens don't change, so they can be stored and reused in a key-value (KV) cache. The whole grid doesn't have to be held in memory at once either. Guide 10 covers both.
+
+## What attention is, and isn't
+
+Attention is older than the transformer. It was introduced for translation with recurrent networks, the design from Guide 3 that reads tokens one at a time and carries a running summary. Those models squeezed a whole input sentence into one fixed-size summary before writing the translation. Attention let them draw on every input word at each step instead ([Bahdanau, Cho & Bengio, 2014](https://arxiv.org/abs/1409.0473)). The transformer then dropped the recurrence and built the model out of attention ([Vaswani et al., 2017](https://arxiv.org/abs/1706.03762)).
+
+Grids of attention weights like Figure 2 are easy to draw, and it's tempting to read one as the model's reasoning. A grid shows where one head in one layer drew information from. It doesn't show what was in the values, what the other heads did, or what later layers did with the result. Studies of attention in recurrent text classifiers found that quite different weights can lead to the same output ([Jain & Wallace, 2019](https://aclanthology.org/N19-1357/)). A follow-up argued that they still carry some information and that it depends on what you ask of an explanation ([Wiegreffe & Pinter, 2019](https://aclanthology.org/D19-1002/)). Treat a grid as a hint about one step.
+
+So attention gives each token a new vector, a softmax-weighted average of value vectors, with weights that come from dot products of queries and keys. A causal mask keeps each position from drawing on later tokens, position vectors tell the model where each token sits, and the price is a score for every pair of tokens. Attention only moves information between tokens. Guide 5 pairs it with a network that works on each token separately, and adds the connections that let dozens of such layers stack.

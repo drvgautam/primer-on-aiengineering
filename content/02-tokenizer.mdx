@@ -1,0 +1,352 @@
+---
+title: "Tokenization: how text becomes numbers"
+guide: 2
+slug: tokenizer
+part: How LLMs work
+---
+import { SplitsFigure, MergesFigure, TextToIdsFigure } from "../components/figures/tokens"
+
+# Tokenization: how text becomes numbers
+
+As of October 2026, the major hosted LLM (large language model) APIs charge by the token and cap their input in tokens. By the end of this guide you'll be able to say what a token is and build a small tokenizer's vocabulary by hand. You'll also run the real tokenizer from GPT-2, a model OpenAI released in 2019, and predict where tokenization can make a model stumble on spelling, digits and text that isn't English.
+
+Recall from Guide 1 that our toy network read one character at a time. Its input was a one-hot vector, a row of 27 numbers with a single 1 marking the current character, and its output was a probability for each of the 27 possible next characters. Real language models don't read characters. This guide covers what they read instead, and why.
+
+## The unit a model reads
+
+A network computes with numbers, so text has to become numbers before a model can touch it. Guide 1 did that the simplest way. It kept a fixed list of 27 characters, the space and the 26 lowercase letters, and each character stood for its index in the list. A language model does the same thing with a longer list and bigger units.
+
+One unit of text is a **token**. Recall from Guide 1 that the fixed list of items a model can output is its vocabulary. Here the entries are tokens, the model reads from the same list it writes to, and we write the list $\mathcal{V}$ and its size $\lvert\mathcal{V}\rvert$, which was 27 in Guide 1. A token's index in the list is its **token ID**, an integer counted from 0. The **tokenizer** is the program that holds the list and converts in both directions. It **encodes** text into a sequence of token IDs, and it **decodes** token IDs back into text.
+
+The network sits entirely on the ID side of that conversion. It receives integers and outputs a probability for each integer in the list, and no letter ever reaches it. Guide 1's toy network used characters, but when it mentioned real LLMs it asked you to think of a token as roughly a word, which was a placeholder. So what should the unit be: a character, a word, or something in between? The choice sets how long every input is and how big the list has to be.
+
+## Two bad extremes
+
+Take Guide 1's toy text and count it both ways. The code in this guide is plain Python until we reach GPT-2, in blocks that run in order and share variables, like notebook cells.
+
+```python
+text = ("the cat sat on the mat and the dog sat on the log and the "
+        "cat saw the dog then the dog ran to the cat and the cat ran on the mat")
+
+chars = list(text)
+words = text.split()
+print(len(chars), "characters,", len(set(chars)), "distinct")
+print(len(words), "words,", len(set(words)), "distinct")
+```
+
+```output
+128 characters, 15 distinct
+33 words, 12 distinct
+```
+
+| Unit | Tokens for the toy text | Distinct tokens (vocabulary) |
+|---|---|---|
+| Characters | 128 | 15 |
+| Words | 33 | 12 |
+
+Only 15 of Guide 1's 27 characters turn up, because the text never uses the other 12 letters. A character vocabulary is tiny, and a new word can't catch it out, since every new word is spelled with old letters. The price is length. The text takes 128 tokens to say 33 words, and one token carries very little. A model spends computation on every token it reads, and Guide 4 shows how fast that cost grows with the length of the sequence.
+
+Words make the sequence about four times shorter, 33 tokens against 128. The vocabulary, though, is now whatever words happened to appear, and that breaks the moment someone types a new one. Here's a word-level tokenizer built from the toy text, given a sentence that ends in a word it has never seen:
+
+```python
+vocab = sorted(set(words)) + ["<unk>"]
+
+def encode_words(s):
+    return [vocab.index(w) if w in vocab else vocab.index("<unk>") for w in s.split()]
+
+def decode_words(token_ids):
+    return " ".join(vocab[i] for i in token_ids)
+
+token_ids = encode_words("the cat sat on the rug")
+print(token_ids)
+print(decode_words(token_ids))
+```
+
+```output
+[9, 1, 7, 5, 9, 12]
+the cat sat on the <unk>
+```
+
+The word "rug" has no ID, so the tokenizer falls back on a placeholder called the **unknown token**, written `<unk>` here and stored as ID 12. Encoding no longer fails, but look at what decoding returned. The rug is gone. Every unseen word becomes the same ID 12, so nothing after the tokenizer can tell which word it was.
+
+A twelve-word list is a toy, but a longer list has the same hole. Real text keeps producing names, typos, product codes, slang and variable names, so a word vocabulary either grows without limit or stays full of gaps. It also wastes what it does contain, because "cat" and "cats" would be two unrelated entries.
+
+What we want is short sequences, no unknown tokens, and a vocabulary of manageable size, all at once. The rest of this guide gets there in two moves: pieces of words chosen by counting, with bytes underneath as a safety net.
+
+<figure>
+<SplitsFigure />
+<figcaption>Figure 1. One sentence split three ways. Characters give 22 tokens and words give 6. The third split uses the tokenizer the next two sections build, which gives 11. In the boxes, a small bracket marks a space.</figcaption>
+</figure>
+
+## Learning the vocabulary from data: byte-pair encoding
+
+Start with characters as the tokens. Find the pair of adjacent tokens that occurs most often in the text, glue it into one new token, and add that token to the vocabulary. Then do it again. Each glued pair is called a **merge**, and the procedure is **byte-pair encoding (BPE)**. The name comes from the original compression algorithm, which merged pairs of bytes. We merge characters for now, and bytes come back two sections on. [Sennrich, Haddow & Birch (2016)](https://aclanthology.org/P16-1162/) introduced it for translation models, adapting a compression algorithm by [Gage (1994)](http://www.pennelynn.com/Documents/CUJ/HTML/94HTML/19940045.HTM).
+
+Practical trainers add one rule before they start, called **pre-tokenization**: split the text into words first, and let merges happen only inside a word, never across two. For now a word is a run of letters, and GPT-2's real splitting rule is fussier, as you'll see when we run it. Without it, a token could straddle two words, the end of one glued to the start of the next, which is only useful when those two words meet again. The trainer would also have to rescan the whole text after every merge. With it, no pair spans a word boundary, so the trainer can keep a table of distinct words and their counts in place of the full text. The spaces still have to go somewhere if decoding is to return the original text exactly, so each word keeps the space in front of it: `the`, ` cat`, ` sat` and so on. You'll see the consequence in GPT-2's output, where most tokens carry a leading space.
+
+The trainer below is about 30 lines. `merge_pair` does the gluing inside one word. `train_bpe` counts every adjacent pair, picks the most frequent, merges it everywhere, and prints how many tokens the toy text has afterwards.
+
+```python
+import re
+from collections import Counter
+
+def merge_pair(word, a, b):
+    out, i = [], 0
+    while i < len(word):
+        if word[i:i + 2] == (a, b):   # the pair: glue it into one token
+            out.append(a + b)
+            i += 2
+        else:
+            out.append(word[i])
+            i += 1
+    return tuple(out)
+
+def train_bpe(text, num_merges):
+    # pre-tokenize: each word keeps its leading space; Counter maps word -> how often
+    words = Counter(tuple(w) for w in re.findall(r" ?[a-z]+", text))
+    merges = []
+    for step in range(1, num_merges + 1):
+        pairs = Counter()
+        for word, freq in words.items():
+            for pair in zip(word, word[1:]):
+                pairs[pair] += freq
+        if not pairs:                 # every word is already one token
+            break
+        (a, b), count = max(pairs.items(), key=lambda kv: (kv[1], kv[0]))
+        merges.append((a, b))
+        merged = Counter()
+        for word, freq in words.items():
+            merged[merge_pair(word, a, b)] += freq
+        words = merged
+        n = sum(len(word) * freq for word, freq in words.items())  # sequence length
+        print(f"{step:2d}  {a!r:>5} + {b!r:<5}  seen {count:2d} times  {n:3d} tokens")
+    return merges
+
+print(len(text), "tokens at the start")
+merges = train_bpe(text, 10)
+vocab = sorted(set(text)) + [a + b for a, b in merges]
+print(len(vocab), "vocabulary entries")
+```
+
+```output
+128 tokens at the start
+ 1    't' + 'h'    seen 11 times  117 tokens
+ 2   'th' + 'e'    seen 11 times  106 tokens
+ 3    ' ' + 'the'  seen 10 times   96 tokens
+ 4    'a' + 't'    seen  8 times   88 tokens
+ 5    'a' + 'n'    seen  5 times   83 tokens
+ 6    'o' + 'g'    seen  4 times   79 tokens
+ 7    'c' + 'at'   seen  4 times   75 tokens
+ 8    ' ' + 'cat'  seen  4 times   71 tokens
+ 9    'o' + 'n'    seen  3 times   68 tokens
+10    'd' + 'og'   seen  3 times   65 tokens
+25 vocabulary entries
+```
+
+`t` and `h` sit next to each other 11 times, 10 in the word "the" and once inside "then", so they become the token `th`, and then `th` and `e` become `the`. The third merge attaches the space. It's seen 10 times and not 11 because the very first word of the text has no space before it. So `the` and ` the` end up as two different tokens, one for the start of the text and one for everywhere else. By merge 8 the algorithm has also built ` cat`. Pre-tokenization told it where words end, but nobody told it which words matter. Frequent words became single tokens because their letters keep turning up side by side.
+
+Merge 1 was a three-way tie, since `h` with `e` and the space with `t` also occur 11 times. The `max` call breaks a tie by taking the pair that sorts last alphabetically, and `t` with `h` wins. The rule is arbitrary, but it's fixed, so your run prints the same table as this one.
+
+<figure>
+<MergesFigure />
+<figcaption>Figure 2. The first four merges, on three words of the toy text. Step through them: each merge glues one pair of neighbouring tokens wherever it occurs, and the count underneath is the length of the whole toy text after that merge. The word "dog" is untouched until merges 6 and 10.</figcaption>
+</figure>
+
+After 10 merges the vocabulary has 25 entries, the 15 characters plus one per merge, and the toy text is 65 tokens, about half of its 128 characters. The number of merges is the dial. Each extra merge adds one entry to the vocabulary and shortens the text a little more. Stop early and you're near the character extreme. Keep going until no pairs are left and every word of the training text is one token, which is the word extreme. GPT-2's designers stopped at 50,000 merges, which is the length of the merge list in its [released code](https://github.com/openai/gpt-2).
+
+Why stop at all? Recall from Guide 1 that a network outputs one logit, a raw score, per vocabulary entry. Every entry adds parameters and work at the output, and a rare entry turns up too seldom in the training text to be learned well. So 50,000 is a chosen trade-off between sequence length and vocabulary size.
+
+A tokenizer is trained like this once, on a large sample of text, before the model exists. Trained here means counting and merging, with no gradient descent. Its merge list is then frozen, and the model is trained on the token IDs the tokenizer outputs.
+
+## Encoding text the tokenizer has never seen
+
+Training left us an ordered list of merges. To encode new text, pre-tokenize it the same way, except that the encoder accepts any non-space characters so we can feed it letters the trainer never saw. Then split each word into characters, and replay the merges in the order they were learned. The order matters because later merges are built from earlier ones. Merge 7 glues `c` to `at`, and there is no `at` until merge 4 has run.
+
+```python
+def encode(text):
+    tokens = []
+    for w in re.findall(r" ?\S+", text):   # any run of non-space characters
+        word = tuple(w)
+        for a, b in merges:        # replay in the order learned
+            word = merge_pair(word, a, b)
+        tokens.extend(word)
+    return tokens
+
+tokens = encode("the cats")
+print(tokens, [vocab.index(t) for t in tokens])
+tokens = encode("the bat")
+print(tokens, "not in vocab:", [t for t in tokens if t not in vocab])
+print(len(encode("the cat sat on the mat")), "tokens")
+```
+
+```output
+['the', ' cat', 's'] [16, 22, 12]
+['the', ' ', 'b', 'at'] not in vocab: ['b']
+11 tokens
+```
+
+The word "cats" appears nowhere in the toy text, and it still encodes cleanly, as the known token ` cat` followed by the letter `s`. A new word gets spelled out of familiar pieces, where the word tokenizer would have flattened it into `<unk>`. This `encode` stops at the tokens so you can see them, and the IDs come from looking each one up in `vocab`. Don't read the split as grammar, though. BPE splits by frequency, so a plural that's common enough in the training text gets a token of its own, and only rarer words fall back to shared pieces. The last line is the count behind the third split in Figure 1.
+
+The second example isn't so lucky. "bat" splits into a space, `b` and `at`, and `b` isn't in the vocabulary, because the toy text contains no letter b. It has no ID, so this tokenizer would need an unknown token after all. The vocabulary began as the 15 characters that happened to appear, so every other character is still unknown. That covers capital letters, digits, punctuation and every other alphabet. Pieces of words took care of unseen words, and unseen characters are still a problem.
+
+## Bytes: the fallback that never fails
+
+The fix is to start from a set of basic symbols that is complete by construction, and computers already have one. Any text in a file or on a network is stored as a sequence of **bytes**, each a number from 0 to 255. The standard rule for turning characters into bytes is called **UTF-8** (Unicode Transformation Format, 8-bit). It gives each plain English letter, digit and punctuation mark one byte, and every other character between two and four.
+
+```python
+print(list("café".encode("utf-8")))
+print(list("🐈".encode("utf-8")))
+```
+
+```output
+[99, 97, 102, 195, 169]
+[240, 159, 144, 136]
+```
+
+"café" is 4 characters but 5 bytes, because the é takes two, 195 and 169. The cat emoji takes four. Whatever the script or symbol, the bytes underneath come from the same 256 values.
+
+**Byte-level BPE** runs the same merging algorithm with those 256 byte values as the starting vocabulary. Our toy trainer started from the characters that happened to show up, which kept its table readable. GPT-2's trainer, like many production trainers since, starts from bytes. Frequent byte sequences still merge into pieces of words and whole words. Text the trainer never saw falls back to shorter pieces and, in the worst case, to single bytes, which are always in the vocabulary. A byte-level tokenizer needs no unknown token, because nothing can be unknown to it.
+
+GPT-2 uses byte-level BPE with a vocabulary of 50,257 tokens ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)), and you can check that size with arithmetic:
+
+$$
+256 + 50{,}000 + 1 = 50{,}257
+$$
+
+That's 256 byte tokens, 50,000 merges and one **special token**, a reserved ID that stands for a control signal and never for a piece of text. GPT-2's is written `<|endoftext|>` and has ID 50256, the last in the list. In a long stream of training text it marks where one document ends and the next begins. GPT-2 has no other special tokens.
+
+<details>
+<summary>Other tokenizers you'll meet</summary>
+
+Byte-level BPE is one design among several, and these are the differences you're most likely to run into.
+
+Other model families reserve more special tokens than GPT-2 does. Common ones mark the beginning of a sequence, the end of a sequence, or padding that fills short sequences out to a common length. Tokenizers that don't start from bytes also keep an unknown token.
+
+WordPiece ([Schuster & Nakajima, 2012](https://doi.org/10.1109/ICASSP.2012.6289079); [Wu et al., 2016](https://arxiv.org/abs/1609.08144)) is the tokenizer of the BERT model ([Devlin et al., 2019](https://arxiv.org/abs/1810.04805)). It also builds a vocabulary by merging, but it scores a candidate merge by how much more probable it makes the training text, and it encodes by taking the longest matching piece first. As used in BERT, it marks a piece that continues a word with `##`, where GPT-2 marks a piece that starts one with a space. Unigram tokenization ([Kudo, 2018](https://arxiv.org/abs/1804.10959)) works in the other direction: it starts from a large vocabulary of candidate pieces and prunes it down. The T5 model ([Raffel et al., 2020](https://arxiv.org/abs/1910.10683)) uses it, through the SentencePiece library ([Kudo & Richardson, 2018](https://aclanthology.org/D18-2012/)).
+
+Some tokenizers normalize text before splitting it, for example by lowercasing it or stripping accents. GPT-2's does neither, so capitals and accents survive encoding.
+
+</details>
+
+## A real tokenizer on a real sentence
+
+This series traces one short input, "The cat sat on the", through every stage of a language model, and tokenization is the first stage. Why GPT-2? Its tokenizer is frozen and small enough to inspect. The model you call today has its own tokenizer and will give different counts, so count with that one. The `tiktoken` library ships GPT-2's tokenizer, and the outputs below come from version 0.14.0, the one pinned in the series `requirements.txt` as of October 2026. Its first call downloads two vocabulary files of about 1.5 MB in total, checks each against a hash stored in the library, and caches them.
+
+```python
+import tiktoken
+
+enc = tiktoken.get_encoding("gpt2")
+token_ids = enc.encode("The cat sat on the")
+print(token_ids)
+print([enc.decode([i]) for i in token_ids])
+print(repr(enc.decode(token_ids)))
+print(enc.n_vocab, enc.eot_token)
+```
+
+```output
+[464, 3797, 3332, 319, 262]
+['The', ' cat', ' sat', ' on', ' the']
+'The cat sat on the'
+50257 50256
+```
+
+| Token | `The` | ` cat` | ` sat` | ` on` | ` the` |
+|---|---|---|---|---|---|
+| ID | 464 | 3797 | 3332 | 319 | 262 |
+
+That's five tokens, so the sequence length, which the series writes $n$, is 5. Decoding the five IDs gives back the exact string, capital T included. GPT-2's tokenizer starts from bytes and keeps every space inside a token. It changes nothing before it splits, with no lowercasing and no stripped accents, so unlike the word tokenizer that lost the rug it is lossless: `decode` always undoes `encode`. The last line confirms the vocabulary size and the ID of the end-of-text token.
+
+The spaces live inside the tokens, as pre-tokenization arranged, so ` cat` with its leading space is token 3797. Change the capital or drop the space and you get a different token.
+
+```python
+def pieces(s):
+    # one token at a time; a token that is part of a multi-byte character prints as "�"
+    return [enc.decode([i]) for i in enc.encode(s)]
+
+for s in [" cat", " Cat", "cat", " CAT"]:
+    print(repr(s), enc.encode(s))
+for s in ["the bat", "Akwirw ier", "The cat's 2 mats"]:
+    print(pieces(s))
+print(enc.encode("🐈"))
+```
+
+```output
+' cat' [3797]
+' Cat' [5181]
+'cat' [9246]
+' CAT' [38348]
+['the', ' bat']
+['Ak', 'w', 'ir', 'w', ' ', 'ier']
+['The', ' cat', "'s", ' 2', ' mats']
+[8582, 238, 230]
+```
+
+To the model, those first four are unrelated integers. Nothing about 3797 and 5181 says they name the same animal, and Guide 3 shows how training makes them related.
+
+The remaining lines show the byte fallback at work. "the bat", which left our toy tokenizer holding a `b` with no ID, is two ordinary tokens. The invented "Akwirw ier" has never been a word anywhere, and it comes out as six familiar pieces with no unknown token. The space stands alone there because the merges that build `ier` come earlier in the list and run first, and no learned merge joins a space to `ier`. So the space falls back to its own single-byte token. The emoji's four bytes become three tokens, because one merge glued the first two bytes together. The 256 byte tokens do fill IDs 0 to 255 in GPT-2's list, but in a different order, so 238 and 230 are the single-byte tokens for bytes 144 and 136.
+
+In the apostrophe line, ` mats` is a single token, as unrelated to ` mat` as ` Cat` is to ` cat`, because a frequent plural earns its own entry. The same line corrects a simplification. When we built the toy trainer, pre-tokenization just split the text into words with their leading spaces. GPT-2's version does more: it also separates digits, punctuation and contraction endings such as `'s` into tokens of their own, and it has its own rule for runs of several spaces.
+
+<figure>
+<TextToIdsFigure />
+<figcaption>Figure 3. Encoding the running example with GPT-2's tokenizer. The text is split into five tokens, four of which carry a leading space (the small bracket), and each token is looked up to get its ID. The faded row is the next stage, which Guide 3 covers.</figcaption>
+</figure>
+
+## Where tokenization shows through
+
+Most of the time you can ignore the tokenizer. Here are the places an engineer runs into it, all computed with GPT-2's tokenizer.
+
+```python
+for s in ["strawberry", " strawberry", " 1234567", " 2026"]:
+    print(pieces(s))
+for s in ["The cat sat on the mat.", "Katten satt på matten.",
+          "Die Katze saß auf der Matte.", "Le chat était assis sur le tapis."]:
+    print(len(s.encode("utf-8")), "bytes,", len(enc.encode(s)), "tokens:", s)
+```
+
+```output
+['st', 'raw', 'berry']
+[' strawberry']
+[' 123', '45', '67']
+[' 20', '26']
+23 bytes, 7 tokens: The cat sat on the mat.
+23 bytes, 9 tokens: Katten satt på matten.
+29 bytes, 10 tokens: Die Katze saß auf der Matte.
+34 bytes, 12 tokens: Le chat était assis sur le tapis.
+```
+
+Spelling comes first. With no space in front, "strawberry" is three tokens, and with one it's a single token. Either way the model receives IDs, and the ten letters aren't among them. It can only learn how a token is spelled indirectly. One route is that the same word turns up split in different ways, here as three pieces and as the single token ` strawberry`, in the same kinds of sentences. So training can teach the model to respond to the single token and to the three-piece sequence alike. Rarer words split all the way down to single letters, which links pieces to letters in the same way. Spelling is inferred through those links ([Kaushal & Mahowald, 2022](https://aclanthology.org/2022.naacl-main.179/)). That's why "how many r's are in strawberry" became a well-known stumbling block for chat models around 2024. Newer models often get that one right, but what they receive is still IDs.
+
+Numbers get similar treatment. " 1234567" becomes ` 123`, `45` and `67`, and the year " 2026" becomes ` 20` and `26`. The digits are grouped by which sequences were frequent in the training text, with no regard for place value, so the same digit can land in differently shaped tokens from one number to the next. Adding or comparing numbers means lining digits up by place. Here the three tokens hold three, two and two digits, and another seven-digit number can split differently, so the model has to work out an alignment the tokens don't hand it. That's one reason arithmetic on long numbers can go wrong.
+
+| Sentence | Bytes | GPT-2 tokens |
+|---|---|---|
+| The cat sat on the mat. | 23 | 7 |
+| Katten satt på matten. (Norwegian) | 23 | 9 |
+| Die Katze saß auf der Matte. (German) | 29 | 10 |
+| Le chat était assis sur le tapis. (French) | 34 | 12 |
+
+The table's four sentences say the same thing, and the English one is the cheapest, at 7 tokens against 9, 10 and 12. GPT-2's merges were almost certainly learned from web text that was mostly English, so English words tend to be whole tokens while other languages split into more, smaller pieces. The Norwegian sentence has exactly as many bytes as the English one and still needs two more tokens.
+
+Token counts are also what you pay for and what you run out of. A model's **context length** is the largest number of tokens it can read at once, and GPT-2's is 1,024 ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)). Models released since then read far more, but the limit is still a token count. So the same document costs more and fits less in a language the tokenizer splits finely. The usual rule of thumb, about three quarters of a word per token, is folklore tuned to English prose. The table's English sentence is 6 words in 7 tokens, and the French one is 7 words in 12.
+
+## From tokens to training examples
+
+Recall from Guide 1 that a training example paired one character with the character that came next. With tokens, the pairing is the same shift by one position.
+
+```python
+inputs, targets = token_ids[:-1], token_ids[1:]
+print(inputs)
+print(targets)
+```
+
+```output
+[464, 3797, 3332, 319]
+[3797, 3332, 319, 262]
+```
+
+Each position's target is the token that follows it: after 464 comes 3797, and after 319 comes 262. What the model gets to look at when it predicts a target is a separate matter. Guide 1's network saw one item at a time, and Guide 4 replaces that with the whole preceding sequence. As in Guide 1, the model outputs a probability for every entry in its list at each position. Here that means all 50,257 tokens in $\mathcal{V}$, and never one chosen word.
+
+So a tokenizer is a learned vocabulary of frequent pieces of text that turns any text into a sequence of integers. The model only ever sees those integers, which means the tokenizer decides how long every input is, what it costs, and which details the model gets directly and which it has to learn the hard way.
+
+An ID is still a bare label, though. Token 3797 isn't larger than token 262 in any sense that means something, and a network can't do useful arithmetic on labels. For now, treat an ID as just a label, the position of the 1 in a one-hot vector like Guide 1's. Guide 3 turns each one into a vector the network can compute with, by letting each ID select one row of a learned table.

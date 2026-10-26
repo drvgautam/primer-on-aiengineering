@@ -1,0 +1,4 @@
+# Building and verifying the notebooks (tools/build_notebooks.py, tools/verify_notebooks.py)
+-r ../code/requirements.txt
+nbformat==5.11.1
+nbclient==0.11.0

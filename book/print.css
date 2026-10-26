@@ -1,0 +1,63 @@
+/* The /book route: the web styles from app/globals.css, adapted for paper.
+   Page size, margins and page numbers are set by book/build-pdf.mjs. */
+
+.stepped-print-step { margin: 0 0 1.25rem; break-inside: avoid; }
+/* Steps are drawn smaller than the web figure so more of a sequence shares a page. */
+.stepped-print-step svg { max-width: 430px !important; }
+.stepped-print-label { font: 600 0.8rem/1.4 system-ui, sans-serif; color: var(--muted); margin-bottom: 0.4rem; }
+
+.book .cover {
+  min-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.book .cover-kicker { font: 600 0.9rem system-ui, sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0; }
+.book .cover-title { font-size: 2.8rem; margin: 0.5rem 0 1rem; }
+.book .cover-subtitle { font-size: 1.25rem; margin: 0 0 3rem; }
+.book .cover-author { font: 600 1.1rem system-ui, sans-serif; }
+.book .cover-meta { font: 0.9rem/1.6 system-ui, sans-serif; color: var(--muted); }
+
+.book .toc ol, .book .toc ul { padding-left: 1.75rem; }
+.book .toc li { margin: 0.35rem 0; }
+.book .toc a { text-decoration: none; }
+.book .toc-part { font: 600 0.85rem system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 1.5rem 0 0.25rem; }
+
+.book .part-title { min-height: 60vh; display: flex; flex-direction: column; justify-content: center; }
+.book .part-title p { font: 600 1rem system-ui, sans-serif; color: var(--muted); margin: 0; }
+.book .part-title h1 { font-size: 2.4rem; margin: 0.25rem 0 0; }
+
+.book .chapter-number { font: 600 0.85rem system-ui, sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 -1rem; }
+.book .chapter h1 { margin-top: 1.5rem; }
+
+.book .appendix table { font-size: 0.85rem; }
+
+@media print {
+  :root { color-scheme: light; }
+  body { font-size: 10.5pt; line-height: 1.5; }
+  .site-header { display: none; }
+  main { max-width: none; padding: 0; }
+
+  .book .front, .book .part-title, .book .chapter { break-before: page; }
+  .book .cover, .book .part-title { min-height: 230mm; }
+
+  h1, h2, h3, summary { break-after: avoid; }
+  figure, .katex-display, tr { break-inside: avoid; }
+  /* Long lines wrap rather than run off the page. */
+  pre { overflow: visible; white-space: pre-wrap; word-break: break-word; }
+  /* An output stays whole and on the page of the code that printed it, when it fits. */
+  pre:has(> code.language-output) { break-before: avoid; break-inside: avoid; }
+
+  details { break-inside: auto; }
+  summary { cursor: default; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "Going deeper: "; color: var(--muted); }
+
+  /* On paper a link can't be clicked, so print where it goes. */
+  .book .chapter a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.75em;
+    color: var(--muted);
+    word-break: break-all;
+  }
+}

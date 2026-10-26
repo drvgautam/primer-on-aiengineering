@@ -1,0 +1,322 @@
+---
+title: "Neural networks: a function with knobs"
+guide: 1
+slug: neural-networks
+part: How LLMs work
+---
+import { NeuronFigure } from "../components/figures/neuron"
+import { ForwardPassFigure } from "../components/figures/forward-pass"
+import { DescentFigure } from "../components/figures/descent"
+import { BackpropFigure } from "../components/figures/backprop"
+
+# Neural networks: a function with knobs
+
+When you call an LLM (large language model) API, your text goes into a function and a reply comes out. That function's behavior is set by billions of numbers, and nobody wrote any of them by hand. By the end of this guide you'll be able to compute a neuron's output on paper, follow an input through a two-layer network shape by shape, and work out a gradient with a calculator. You'll also read a short numpy training loop and predict how its error falls before you run it.
+
+The whole guide is one recipe. You need a function with adjustable numbers, one number that says how wrong the function currently is, and a mechanical procedure that adjusts the first to shrink the second. Every later guide in this series plugs different parts into that recipe.
+
+## A network is a function with knobs
+
+Each of those billions of numbers is a **parameter**, a knob whose setting changes what the function computes. We write $\theta$ for all of a network's parameters together. A trained function of this kind is called a model, and in this guide the model is always a neural network. Training is the search for good settings, and before we can search we need to see what the knobs are attached to.
+
+The smallest unit is a **neuron**. It multiplies each of its input numbers by a number of its own called a **weight**, adds up the results, and then adds one more number, the **bias**. The weights and the bias are the neuron's parameters. Take the input $x = [2, -1]$, weights $w = [1.5, 0.5]$ and bias $b = 0.25$:
+
+$$
+2 \cdot 1.5 + (-1) \cdot 0.5 + 0.25 = 2.75
+$$
+
+That sum then goes through an **activation function**, a fixed rule applied to the single number. The one we'll use throughout is **ReLU**, the rectified linear unit, popularized for deep networks by [Nair & Hinton (2010)](https://www.cs.toronto.edu/~hinton/absps/reluICML.pdf). It computes $\max(0, \cdot)$: a positive number passes through unchanged and a negative one becomes zero. So this neuron outputs $2.75$. A second neuron reading the same input with weights $[-1, 1]$ and bias $0$ computes $-2 - 1 = -3$, and ReLU turns that into $0$. For this input the second neuron is switched off, and the next section shows why that off switch is what makes stacking neurons worthwhile.
+
+<figure>
+<NeuronFigure />
+<figcaption>Figure 1. One neuron. Each input number is multiplied by its weight, the bias is added, and the sum 2.75 passes through ReLU unchanged because it is positive.</figcaption>
+</figure>
+
+The word "neuron" is borrowed from early mathematical models of brain cells, and the name stuck. Nothing here depends on how brains work: a neuron in this series is a weighted sum followed by a simple fixed function, which is ReLU in this guide, and nothing more.
+
+## Layers, and why the bend matters
+
+A **layer** is many neurons reading the same input. Give each neuron's weights their own column of a matrix $W$, line the biases up in a row $b$, and the whole layer becomes one matrix multiply:
+
+$$
+h = \sigma(xW + b)
+$$
+
+Here $x$ is the input, a row of $d_{\text{in}}$ numbers, and $W$ has shape $d_{\text{in}} \times d_{\text{out}}$. The bias $b$ and the output $h$ are rows of $d_{\text{out}}$ numbers, one per neuron, and $\sigma$ is the activation function applied to each number separately. Our two neurons from the last section are a layer with $W = \begin{bmatrix} 1.5 & -1 \\ 0.5 & 1 \end{bmatrix}$ and $b = [0.25, 0]$, and for $x = [2, -1]$ it outputs $h = [2.75, 0]$. Inputs are rows and matrices multiply on the right, a convention the whole series keeps.
+
+Feed one layer's output into a second layer and you have a network:
+
+$$
+h = \sigma(xW^{(1)} + b^{(1)}), \qquad \hat{y} = h W^{(2)} + b^{(2)}
+$$
+
+The superscripts number the layers, and $\hat{y}$ is the network's output. The last layer, the output layer, is the same weighted sums with the activation left off, so its outputs can be any real numbers. A layer between input and output, like the first one here, is called a hidden layer.
+
+Why does the network need $\sigma$ at all? Take it away, set the biases aside for a moment, and the output is $xW^{(1)}W^{(2)}$, which is the same as $x(W^{(1)}W^{(2)})$. Say the network reads 2 numbers, its first layer has 3 neurons and its second has 2. Then $W^{(1)}$ is $2 \times 3$ and $W^{(2)}$ is $3 \times 2$, and their product is just one $2 \times 2$ matrix, so two layers without an activation compute exactly what one layer could. The same goes for a hundred of them, and putting the biases back only adds one combined bias to that single layer.
+
+ReLU breaks the collapse. Its graph is flat for negative inputs and a straight diagonal for positive ones, and the bend is the corner at zero where the two meet. A neuron that's switched off contributes nothing, as if its column of the matrix were zeros, so for any one input the layer still acts like a single matrix plus a bias. Which matrix, though, depends on the input. Our two-neuron layer switched its second neuron off for $x = [2, -1]$. Feed it $x = [-1, 2]$ and the sums are $-0.25$ and $3$, so now the first neuron is off and the second is on. No single fixed matrix behaves that way. In a stack, every layer picks its matrix by which of its neurons are on, so the network stitches together a different straight-line piece for each on/off pattern. That's how stacked layers with the bend represent far more complicated functions than one matrix can. The accordion below says how far that goes.
+
+<details>
+<summary>How much can a network represent?</summary>
+
+A network with a single hidden layer can approximate any continuous function on a closed, bounded region as closely as you like, given enough neurons ([Cybenko, 1989](https://doi.org/10.1007/BF02551274); [Hornik, Stinchcombe & White, 1989](https://doi.org/10.1016/0893-6080%2889%2990020-8)). This is the universal approximation theorem. The original proofs covered S-shaped activation functions, and [Leshno et al. (1993)](https://doi.org/10.1016/S0893-6080%2805%2980131-5) extended the result to any activation that isn't a polynomial, which includes ReLU.
+
+The theorem only says that a good setting of the parameters exists. It doesn't say how many neurons you need, and it doesn't say that training will find those parameters. "Can represent" is a much weaker promise than "can learn."
+
+</details>
+
+## The forward pass in shapes
+
+Running an input through the layers to get an output is the **forward pass**. To follow one, we need a problem, and ours for the rest of the guide is to predict the next character of a text from the current character alone. The text uses 27 characters, the space and the letters a to z. Seeing only one character is a simplification we're making on purpose: an LLM takes into account all the earlier text it's given, up to a fixed limit, and Guide 4 covers how.
+
+A network computes with numbers, so each character becomes a row of 27 of them, all zeros except for a single 1 in that character's slot. This is called a one-hot vector. It's our second declared simplification, since LLMs feed in learned vectors instead, which is the subject of Guide 3. The hidden layer has 16 ReLU neurons, an arbitrary choice that is plenty for this text, and the output layer produces 27 scores, one for each character that could come next. In shapes:
+
+- The input $x$ is $1 \times 27$.
+- Multiplying by $W^{(1)}$, which is $27 \times 16$, then adding $b^{(1)}$ and applying ReLU gives the hidden row $h$, which is $1 \times 16$.
+- Multiplying by $W^{(2)}$, which is $16 \times 27$, and adding $b^{(2)}$ gives the output, which is $1 \times 27$.
+
+<figure>
+<ForwardPassFigure />
+<figcaption>Figure 2. The forward pass in three steps. A 1 × 27 one-hot input becomes a 1 × 16 hidden row and then 1 × 27 output scores. Each arrow is labelled with the shape of the matrix it multiplies by.</figcaption>
+</figure>
+
+Two weight matrices and two bias rows hold $27 \cdot 16 + 16 + 16 \cdot 27 + 27 = 907$ parameters. An LLM has billions as of October 2026, and Guide 7 looks at what that scale costs.
+
+The same matrices handle many inputs at once. Stack $n$ one-hot rows into an $n \times 27$ matrix, run the same two multiplies, and you get an $n \times 27$ matrix of scores, one row per input. Each row is computed independently of the others, which is why the code later in this guide never loops over examples.
+
+## Measuring wrongness: softmax and cross-entropy
+
+The network's output $\hat{y}$ is a row of 27 scores. Scores that feed a softmax are called **logits** and written $z$, and they can be any real numbers. To read them as probabilities they have to be positive and sum to 1. **Softmax** does both by exponentiating each logit and dividing by the total:
+
+$$
+p_i = \frac{e^{z_i}}{\sum_j e^{z_j}}
+$$
+
+Here $p_i$ is the probability for option $i$ and the sum in the denominator runs over every option. Try it on three logits, $[2, 1, 0]$. Their exponentials are $e^2 = 7.389$, $e^1 = 2.718$ and $e^0 = 1$, which sum to $11.107$, so the probabilities are $0.665$, $0.245$ and $0.090$. The logits were one apart each time, and each probability is $e \approx 2.718$ times the next one down: softmax turns differences between logits into ratios between probabilities.
+
+So the network never outputs a character. It outputs a probability for every character, together called a probability distribution, and anything that looks like a single prediction is a choice made afterwards from those 27 numbers.
+
+A **loss**, written $\mathcal{L}$, is one number that is large when the network is badly wrong and small when it's nearly right. We want a penalty that is zero when the correct answer gets a probability of 1 and that grows without limit as that probability approaches zero. The negative natural logarithm does exactly that. For choosing one option out of many, the standard loss is **cross-entropy**, the negative natural logarithm of the probability the network gave to the correct answer. The name comes from information theory, and we won't need its origin here.
+
+$$
+\mathcal{L} = -\ln p_y
+$$
+
+The subscript $y$ is the index of the correct answer. If the first of our three options was correct, the loss is $-\ln 0.665 = 0.408$. A network that had given the correct answer a probability of 1 would have a loss of $-\ln 1 = 0$, and one that had given it $0.01$ would have a loss of $4.6$. Putting almost all the probability on wrong answers is punished hard.
+
+A network with no information about the text spreads its probability evenly over the 27 characters and gives each one $1/27$, so its loss is $-\ln(1/27) = \ln 27 \approx 3.30$. Our toy network will start almost exactly there, because its small random weights produce logits close to zero and equal logits mean equal probabilities. Any loss below $3.30$ means the network has learned something about the text.
+
+An example is one current character paired with the character that actually follows it in the text. With many examples, the loss we train on is the average of the per-example losses. An LLM's last step is this same softmax, applied to its output layer's logits. It runs over the LLM's whole vocabulary, the set of tokens it can output, instead of 27 characters. For now, think of a token as roughly a word. Guide 2 refines that, and Guide 6 builds on the softmax.
+
+## Learning is walking downhill, precisely
+
+Which way should each of the 907 knobs move to lower the loss? Start with one knob and a loss simple enough to check by hand, $\mathcal{L}(\theta) = (\theta - 3)^2$. At $\theta = 0$ the loss is $9$. Nudge $\theta$ up to $0.01$ and the loss becomes $2.99^2 = 8.9401$, a drop of about $0.06$ for a nudge of $0.01$. The loss is changing about $-6$ times as fast as the knob.
+
+That ratio is the slope of the loss at $\theta = 0$, and the **gradient** is that slope: how much the loss changes per unit change in the knob, measured with a nudge small enough that the ratio stops depending on its size. For this particular loss the slope at any $\theta$ works out to $2(\theta - 3)$, which you can confirm with the same nudge test anywhere you like. A network has many knobs, so its gradient is a list with one slope per knob, each measured while the others stay fixed. It's written $\nabla_\theta \mathcal{L}$.
+
+A slope of $-6$ says that raising $\theta$ lowers the loss, so $\theta$ should go up. In general each knob should move against the sign of its slope. The rule below also moves it further when the slope is steeper:
+
+$$
+\theta \leftarrow \theta - \eta \, \nabla_\theta \mathcal{L}
+$$
+
+This update rule is **gradient descent**, and the multiplier $\eta$ is the **learning rate**. With $\eta = 0.1$ the first step takes $\theta$ from $0$ to $0 - 0.1 \cdot (-6) = 0.6$. The slope there is $2(0.6 - 3) = -4.8$, so the second step lands on $1.08$. Every step ends closer to $3$, where the loss is zero, and the steps shrink as the slope flattens. Gradient descent reaches the best setting here only because this loss is bowl-shaped. A network's loss has no such guarantee: a small enough step lowers it a little, but the walk can end anywhere the slope has gone flat.
+
+<figure>
+<DescentFigure />
+<figcaption>Figure 3. Gradient descent on a loss with two knobs, drawn as contour lines of equal loss. At each step the dashed arrow is the gradient, pointing uphill, and the solid arrow is the update, which goes the opposite way. The loss drawn here is θ₁² + 4θ₂² and η is 0.1. Its slopes are 2θ₁ and 8θ₂, which the nudge test confirms. At the starting point (4, 1.5) they are 8 and 12, so the first step moves to (4 − 0.8, 1.5 − 1.2) = (3.2, 0.3) and lowers the loss from 25 to 10.6.</figcaption>
+</figure>
+
+The walking-downhill picture is literal. Read as a direction, the list of slopes points where the loss rises fastest. We'll use that fact without proving it, but you can see it in Figure 3, where each dashed arrow crosses the contour lines at a right angle. Moving along a contour doesn't change the loss at all, which makes it plausible that the fastest change is straight across. The update steps the opposite way, and $\eta$ sets the length of the stride. Too long a stride overshoots: with $\eta = 1.1$ the first step from $0$ lands on $6.6$, further from $3$ than where it started. Too short a stride crawls: with $\eta = 0.001$ the first step only reaches $0.006$.
+
+One more declared simplification: in this guide every step measures the loss on the whole dataset. Real training uses a small random sample of the data for each step and more elaborate update rules, which Guide 7 covers.
+
+## Backpropagation: the chain rule, run backward
+
+The nudge test gives one slope per extra forward pass, so getting all 907 slopes that way would cost 907 extra passes for every step. **Backpropagation** gets all of them for about the cost of one more pass. It rests on the **chain rule**, which says that rates along a chain multiply. A rate here is the slope of one quantity with respect to another. If one quantity moves a second at a rate of 2, and the second moves a third at a rate of 3, then the first moves the third at a rate of 6.
+
+Here is a network small enough to do on paper: a one-number input $x = 1$ and two weights, $w_1 = 2$ and $w_2 = 0.5$, computing $h = \text{ReLU}(w_1 x)$ and then $\hat{y} = w_2 h$. The correct answer is $y = 2$. For the loss we'll use squared error, $\mathcal{L} = \tfrac{1}{2}(\hat{y} - y)^2$, purely because it keeps the arithmetic small. Language models train on cross-entropy, and the chain-rule steps are the same either way.
+
+The forward pass gives $h = \text{ReLU}(2 \cdot 1) = 2$, then $\hat{y} = 0.5 \cdot 2 = 1$, then $\mathcal{L} = \tfrac{1}{2}(1 - 2)^2 = 0.5$. Running backpropagation is called the backward pass. It starts at the loss and works toward the input. We write $\partial\mathcal{L}/\partial w$ for the slope of the loss with respect to $w$ while everything else stays fixed.
+
+1. **Output.** The slope of $\tfrac{1}{2}(\hat{y} - y)^2$ with respect to $\hat{y}$ is $\hat{y} - y$. It's the same pattern as the last section's $2(\theta - 3)$, with the $\tfrac{1}{2}$ cancelling the 2. So $\partial\mathcal{L}/\partial\hat{y} = 1 - 2 = -1$.
+2. **Second weight.** Since $\hat{y} = w_2 h$, nudging $w_2$ moves $\hat{y}$ at a rate of $h = 2$. Multiply along the chain: $\partial\mathcal{L}/\partial w_2 = -1 \cdot 2 = -2$.
+3. **Hidden value.** By the same equation, nudging $h$ moves $\hat{y}$ at a rate of $w_2 = 0.5$, so $\partial\mathcal{L}/\partial h = -1 \cdot 0.5 = -0.5$.
+4. **ReLU.** Its input, $w_1 x = 2$, is positive, so $h$ moves one-for-one with that input. The rate is 1, so the slope of the loss with respect to ReLU's input is also $-0.5$.
+5. **First weight.** Nudging $w_1$ moves ReLU's input, $w_1 x$, at a rate of $x = 1$. So $\partial\mathcal{L}/\partial w_1 = -0.5 \cdot 1 = -0.5$.
+
+<figure>
+<BackpropFigure />
+<figcaption>Figure 4. The two-weight network. The first view shows the forward values 1, 2 and 1 moving left to right, ending in a loss of 0.5. The second view shows the gradients moving right to left: −1 at the output, −2 for the second weight, −0.5 at the hidden value and −0.5 for the first weight.</figcaption>
+</figure>
+
+Now take one gradient-descent step with $\eta = 0.1$. The weights become $w_2 = 0.5 - 0.1 \cdot (-2) = 0.7$ and $w_1 = 2 - 0.1 \cdot (-0.5) = 2.05$. Run the forward pass again: $h = \text{ReLU}(2.05 \cdot 1) = 2.05$ and $\hat{y} = 0.7 \cdot 2.05 = 1.435$, so the loss is $\tfrac{1}{2}(1.435 - 2)^2 \approx 0.160$, down from $0.5$.
+
+The backward pass reused two things. Step 2 needed $h$, which the forward pass had already computed, so a real implementation keeps the forward values around. Step 4 started from $\partial\mathcal{L}/\partial h$, computed once in step 3, and step 5 built on step 4's result. In a deeper network every weight earlier than $h$ would start from that same number. Each intermediate slope is computed once and shared by everything upstream of it, and that sharing is why one backward pass costs about as much as one forward pass, however many parameters there are.
+
+Two results carry over to the 907-parameter network. ReLU's rate is 1 where its input was positive and 0 where it wasn't, so a switched-off neuron sends no gradient back and its incoming weights don't move for that example. The paper example used squared error, where the slope at the output was $\hat{y} - y$. For softmax followed by cross-entropy, the slope of the loss with respect to each logit comes out as the predicted probabilities minus the correct answer's one-hot vector, a result the accordion below derives. With our earlier $p = [0.665, 0.245, 0.090]$ and the first option correct, that's $[-0.335, 0.245, 0.090]$: the parameter updates will move in the direction that raises the first logit and lowers the other two.
+
+<details>
+<summary>Backpropagation for the matrix network, and where "predicted minus correct" comes from</summary>
+
+For the two-layer network on $n$ inputs stacked as rows, write $X$ for the $n \times 27$ input matrix, $H$ for the $n \times 16$ matrix of hidden rows, $P$ for the $n \times 27$ matrix of output probabilities, and $Y$ for the $n \times 27$ matrix of one-hot correct answers. The backward pass computes these in order, and every gradient has the same shape as the thing it is a gradient for.
+
+- On the logits: $(P - Y)/n$, shape $n \times 27$. The division by $n$ comes from averaging the loss.
+- On $W^{(2)}$: the transpose of $H$ times the logit gradient, shape $16 \times 27$. On $b^{(2)}$: the column sums of the logit gradient, shape $1 \times 27$.
+- On $H$: the logit gradient times the transpose of $W^{(2)}$, shape $n \times 16$, then set to zero wherever ReLU's output was zero.
+- On $W^{(1)}$: the transpose of $X$ times that, shape $27 \times 16$. On $b^{(1)}$: its column sums, shape $1 \times 16$.
+
+The first line needs two facts from calculus: the slope of $\ln u$ is $1/u$, and the slope of $e^u$ is $e^u$. Write the loss for one example as $\mathcal{L} = -\ln p_y = -z_y + \ln \sum_j e^{z_j}$. Nudging $z_i$ changes the second term at a rate of $e^{z_i} / \sum_j e^{z_j}$, which is exactly $p_i$. The first term contributes $-1$ when $i$ is the correct answer and nothing otherwise. Together that is $p_i - 1$ for the correct answer and $p_i$ for every other option, which is $p$ minus the one-hot vector.
+
+</details>
+
+Backpropagation became the standard way to train networks after [Rumelhart, Hinton & Williams (1986)](https://doi.org/10.1038/323533a0) showed it learning useful hidden layers. The underlying method is older and had been published in other fields, for example by [Linnainmaa (1976)](https://doi.org/10.1007/BF01931367).
+
+## The whole loop in numpy
+
+The whole loop is a few dozen lines of numpy, in blocks that run in order and share variables, like notebook cells. The first one turns the text into training examples: each row of `X` is a one-hot current character, and the matching entry of `y` is the index of the character that follows it.
+
+```python
+import numpy as np
+
+text = ("the cat sat on the mat and the dog sat on the log and the cat saw "
+        "the dog then the dog ran to the cat and the cat ran on the mat")
+chars = " abcdefghijklmnopqrstuvwxyz"
+ids = np.array([chars.index(c) for c in text])  # (128,) one integer per character
+
+X = np.eye(27)[ids[:-1]]  # (n, 27) one-hot current characters
+y = ids[1:]               # (n,)    index of each next character
+n = len(y)
+print(X.shape, y.shape)
+```
+
+```output
+(127, 27) (127,)
+```
+
+The parameters start as small random numbers, with a fixed seed so your run matches this one. They can't all start at zero, because every hidden neuron would then compute the same thing and receive the same gradient, and the neurons could never become different from one another. The outputs shown here come from NumPy 2.2.6, the version pinned in the series `requirements.txt` as of October 2026. The biases are one-dimensional arrays, and numpy treats them as rows when it adds them.
+
+```python
+rng = np.random.default_rng(0)
+W1 = rng.normal(0, 0.01, (27, 16))  # (27, 16)
+b1 = np.zeros(16)                   # (16,)
+W2 = rng.normal(0, 0.01, (16, 27))  # (16, 27)
+b2 = np.zeros(27)                   # (27,)
+print(sum(a.size for a in (W1, b1, W2, b2)))
+```
+
+```output
+907
+```
+
+The forward pass and the loss are the formulas from earlier, applied to all $n$ rows at once.
+
+```python
+def forward(X):
+    h = np.maximum(0, X @ W1 + b1)        # (n, 16) hidden layer after ReLU
+    z = h @ W2 + b2                       # (n, 27) logits
+    z = z - z.max(axis=1, keepdims=True)  # same p, but exp can no longer overflow
+    p = np.exp(z) / np.exp(z).sum(axis=1, keepdims=True)  # (n, 27) softmax
+    return h, p
+
+def loss_of(p):  # p must have one row per training example: it reads the correct answers y
+    return -np.log(p[np.arange(n), y]).mean()  # mean cross-entropy
+
+h, p = forward(X)
+print(f"{loss_of(p):.3f}")
+```
+
+```output
+3.296
+```
+
+That's the $\ln 27$ of a uniform guess, as predicted. One line of `forward` subtracts each row's largest logit from the whole row. Softmax depends only on the differences between logits, so the probabilities don't change, and `exp` is never handed a large positive number. The backward pass is backpropagation written out one line per gradient.
+
+```python
+def backward(X, h, p):
+    dz = p.copy()               # (n, 27)
+    dz[np.arange(n), y] -= 1    # predicted minus correct
+    dz /= n                     # the loss is a mean over n examples
+    dW2 = h.T @ dz              # (16, 27)
+    db2 = dz.sum(axis=0)        # (27,)
+    dh = dz @ W2.T              # (n, 16)
+    dh[h <= 0] = 0              # ReLU: no gradient where the neuron was off
+    dW1 = X.T @ dh              # (27, 16)
+    db1 = dh.sum(axis=0)        # (16,)
+    return dW1, db1, dW2, db2
+```
+
+Each line is one of the paper steps, done for every weight and every example at once. `dz` is the predicted-minus-correct slope on the logits. In `h.T @ dz`, the entry for the weight from hidden neuron $i$ to logit $j$ is that neuron's value times the slope on that logit, which is the second-weight step from the paper example, added up over the examples. Slopes add across examples because the loss is an average of per-example losses. A bias moves its logit one-for-one, so its slope is the logit slope summed over examples, which is the column sum. `dz @ W2.T` is the hidden-value step, and the last three lines repeat the same pattern one layer down.
+
+Training repeats backward, update and forward 2,000 times with $\eta = 1$. A stride that long would bounce between $0$ and $6$ forever on the earlier one-knob loss. How long is too long depends on how sharply the particular loss curves, so a learning rate is found by trying.
+
+```python
+eta = 1.0
+print(0, f"{loss_of(p):.3f}")
+for step in range(1, 2001):
+    dW1, db1, dW2, db2 = backward(X, h, p)
+    W1 -= eta * dW1
+    b1 -= eta * db1
+    W2 -= eta * dW2
+    b2 -= eta * db2
+    h, p = forward(X)
+    if step in (100, 500, 1000, 2000):
+        print(step, f"{loss_of(p):.3f}")
+```
+
+```output
+0 3.296
+100 1.176
+500 0.898
+1000 0.890
+2000 0.887
+```
+
+The loss falls quickly at first, from the uniform-guess value to 1.176 in the first 100 steps. Then it levels off just below 0.89, and another thousand steps buy only 0.003. The text itself sets a floor. In it, "t" is followed by another character 19 times: 11 times by "h", 7 times by a space and once by "o", which is 58%, 37% and 5%. A function that sees only the current character can't tell those cases apart, so it has to give one set of probabilities for all of them.
+
+Average cross-entropy is lowest when those probabilities equal the true frequencies, which is a general property of this loss. Put 0.90 on "h" and 0.05 on each of the other two, for example, and weight each case by how often it happens: $\tfrac{11}{19}(-\ln 0.90) + \tfrac{7}{19}(-\ln 0.05) + \tfrac{1}{19}(-\ln 0.05) \approx 1.32$. The same sum with $\tfrac{11}{19}$, $\tfrac{7}{19}$ and $\tfrac{1}{19}$ as the probabilities comes to $0.84$. That is the floor for the 19 examples that follow "t", and every other character has a floor of its own. The next block builds the whole best-possible table from counts and measures its loss over all 127 examples.
+
+```python
+counts = np.zeros((27, 27))                 # counts[a, b]: how often b follows a
+np.add.at(counts, (ids[:-1], ids[1:]), 1)
+best = X @ counts                           # (n, 27) each example's row of counts
+best /= best.sum(axis=1, keepdims=True)     # (n, 27) frequencies
+print(f"{loss_of(best):.3f}")
+```
+
+```output
+0.884
+```
+
+No function of the current character alone can get a loss below 0.884 on this text, and the network reached 0.887. It has learned nearly everything one character of context can tell it about this text. That's a claim about the 127 examples it trained on, and matching them is all we asked of it. Real training is judged by the loss on text the model never saw, which Guide 7 takes up. To do better on our text it needs to see more of what came before, and giving a model access to all the earlier text is the job of attention in Guide 4.
+
+The trained network's probabilities sit close to the text's frequencies:
+
+```python
+for c in "te":
+    _, pc = forward(np.eye(27)[[chars.index(c)]])  # (1, 27)
+    freq = counts[chars.index(c)] / counts[chars.index(c)].sum()  # (27,)
+    top = np.argsort(pc[0])[::-1][:2]
+    print(repr(c), "->", ", ".join(f"{chars[i]!r} {pc[0, i]:.2f} (text {freq[i]:.2f})" for i in top))
+```
+
+```output
+'t' -> 'h' 0.62 (text 0.58), ' ' 0.32 (text 0.37)
+'e' -> ' ' 0.90 (text 0.91), 'n' 0.10 (text 0.09)
+```
+
+After "t" the most likely next character is "h", and after "e" it's a space. The network still puts 0.32 on a space after "t", so naming "h" as its prediction is a choice made from those probabilities.
+
+The loop was **training**: every pass through it changed the parameters. The last block was **inference**: it ran only the forward pass, and the parameters stayed exactly as training left them.
+
+## What carries forward to LLMs
+
+The toy network is a long way from an LLM, but each piece of it has a counterpart you'll meet later in the series. The sizes below describe LLMs as of October 2026.
+
+- The one-hot input becomes a learned vector for each token (Guides 2 and 3).
+- The single current character becomes all the earlier text the model is given, through attention (Guide 4).
+- Two layers become dozens of transformer blocks, the repeated unit an LLM is built from (Guide 5).
+- The softmax over 27 characters becomes a softmax over a vocabulary of tens or hundreds of thousands of tokens (Guide 6).
+- 907 parameters and one sentence become billions of parameters and trillions of tokens of text (Guide 7).
+
+What stays the same is the recipe. You have a function with adjustable numbers and a loss that says how wrong it is. Backpropagation gives the gradient of that loss, and a descent step moves every parameter a little way against it. An LLM is trained with that same loop.

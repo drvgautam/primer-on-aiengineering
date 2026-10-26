@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use these guides, please cite them as below."
+title: "A Primer on AI Engineering"
+abstract: "Short, worked, runnable guides to how large language models work, with one Jupyter notebook per guide that reproduces every printed result."
+type: software
+authors:
+  - given-names: Vinay
+    family-names: Gautam
+    alias: drvgautam
+repository-code: "https://github.com/drvgautam/primer-on-aiengineering"
+url: "https://drvgautam.github.io/primer-on-aiengineering/"
+license:
+  - MIT
+  - CC-BY-4.0
+version: 0.1.0
+keywords:
+  - large language models
+  - transformers
+  - machine learning education
+  - jupyter

@@ -1,0 +1,316 @@
+---
+title: "Embeddings: giving every token a vector"
+guide: 3
+slug: embeddings
+part: How LLMs work
+---
+import { LookupFigure, PcaFigure, BankFigure } from "../components/figures/embeddings"
+
+# Embeddings: giving every token a vector
+
+Recall from Guide 2 that a tokenizer turns text into token IDs, and that an ID is a bare label. In the tokenizer of GPT-2, the 2019 model this series uses as its example, the token ` cat` is 3797 and ` Cat` is 5181, and nothing about those two integers says they name the same animal. A network needs numbers it can do arithmetic on, and numbers that can sit close together when two tokens behave alike.
+
+By the end of this guide you'll be able to explain why an embedding table is a lookup, compute a cosine similarity by hand, and say how training makes tokens that are used alike end up with similar vectors. You'll also estimate the size of GPT-2's table, and name the two things one vector per token can't capture.
+
+## You already built one
+
+Recall from Guide 1 that the toy network took a one-hot vector, a row of 27 numbers with a single 1 marking the current character, and multiplied it by $W^{(1)}$, a matrix of 27 rows and 16 columns. Here is a one-hot row with its 1 in the second slot, times a matrix of three rows:
+
+$$
+\begin{bmatrix} 0 & 1 & 0 \end{bmatrix}
+\begin{bmatrix} 1 & 2 \\ 3 & 4 \\ 5 & 6 \end{bmatrix}
+= \begin{bmatrix} 0 \cdot 1 + 1 \cdot 3 + 0 \cdot 5 & \; 0 \cdot 2 + 1 \cdot 4 + 0 \cdot 6 \end{bmatrix}
+= \begin{bmatrix} 3 & 4 \end{bmatrix}
+$$
+
+The zeros wipe out the first and third rows, and the 1 passes the second row through unchanged. A one-hot vector times a matrix is that matrix's row, picked out by where the 1 sits.
+
+<figure>
+<LookupFigure />
+<figcaption>Figure 1. A one-hot row times a matrix. Step 1 writes out every product. Step 2 shows the same result as a lookup: the 1 is in the second slot, so the answer is the matrix's second row.</figcaption>
+</figure>
+
+The code below checks it on the small example and then on a matrix with the shape of Guide 1's $W^{(1)}$, for the letter "t" in slot 20. Slot 0 is the space, so "a" is 1 and "t" is 20. This guide's code is numpy 2.2.6, as pinned in the series `requirements.txt` as of October 2026, in blocks that run in order and share variables.
+
+```python
+import numpy as np
+
+small = np.array([[1., 2.], [3., 4.], [5., 6.]])   # (3, 2)
+print(np.array([0., 1., 0.]) @ small)
+
+rng = np.random.default_rng(0)
+W1 = rng.normal(0, 0.01, (27, 16))             # (27, 16) Guide 1's first layer at its start
+print(np.array_equal(np.eye(27)[20] @ W1, W1[20]))
+```
+
+```output
+[3. 4.]
+True
+```
+
+So each of Guide 1's 27 characters had its own row of 16 numbers in $W^{(1)}$, and training adjusted those rows. A row like that is called an **embedding**: the learned vector that stands for one token. The matrix holding all the rows is the **embedding table**, written $W_E$. It has one row per vocabulary entry and $d_{\text{model}}$ columns, so its shape is $\lvert\mathcal{V}\rvert \times d_{\text{model}}$, where **$d_{\text{model}}$** is the number of values in each embedding. In Guide 1 these were the layer's $d_{\text{in}} = 27$ and $d_{\text{out}} = 16$. For an embedding table the same two numbers are called $\lvert\mathcal{V}\rvert$ and $d_{\text{model}}$.
+
+Guide 2's bare label is a row number in $W_E$, and Guide 1's one-hot input was a slow way of asking for that row. Real code skips the multiplication and indexes the row directly, as `W1[20]` does above. The result is identical, and it avoids multiplying by tens of thousands of zeros.
+
+## Why not stop at one-hot?
+
+One-hot vectors are a legitimate way to feed tokens to a network, but they can't express similarity. The usual way to score how alike two vectors are is the **dot product**: multiply them slot by slot and add up the results. Take the 12 distinct words of the toy text from Guides 1 and 2 as a vocabulary and try it on two of them. For the toy examples in this guide, treat each whole word as a token. Guide 2 showed that real tokens are pieces of words.
+
+```python
+text = ("the cat sat on the mat and the dog sat on the log and the "
+        "cat saw the dog then the dog ran to the cat and the cat ran on the mat")
+words = text.split()
+vocab = sorted(set(words))
+print(vocab)
+
+one_hot = np.eye(len(vocab))                   # (12, 12) one row per word
+print(one_hot[vocab.index("cat")] @ one_hot[vocab.index("dog")])
+```
+
+```output
+['and', 'cat', 'dog', 'log', 'mat', 'on', 'ran', 'sat', 'saw', 'the', 'then', 'to']
+0.0
+```
+
+The two 1s are in different slots, so every product is zero. That holds for any two different one-hot vectors. To a network reading one-hot inputs, "cat" is exactly as unlike "dog" as it is unlike "the".
+
+Their other failure is width. A one-hot vector is as wide as the vocabulary, which for GPT-2 means 50,257 numbers per token ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)) with all but one of them zero.
+
+A **dense vector** fixes both. It's far narrower than the vocabulary, and any of its values can be nonzero, so two vectors can be close, far apart, or anything in between. GPT-2 small uses $d_{\text{model}} = 768$, and the largest GPT-3 model, from 2020, uses 12,288 ([Brown et al., 2020](https://arxiv.org/abs/2005.14165)). The width is a trade-off: wider embeddings can hold more distinctions between tokens, and they cost more memory and more computation in every layer that reads them.
+
+## Measuring closeness
+
+The dot product works as a similarity score because of a fact from geometry: it equals the two vectors' lengths multiplied by the cosine of the angle between them. Vectors of two numbers are enough to see it. $[1, 0] \cdot [1, 0] = 1$ for the same direction, $[1, 0] \cdot [0, 1] = 0$ for a right angle, and $[1, 0] \cdot [-1, 0] = -1$ for opposite directions. Its flaw as a score is that its value also grows with the length of either vector, whatever their directions. To compare directions alone, divide the lengths out, which leaves the cosine of the angle. The result is **cosine similarity**:
+
+$$
+\cos(u, v) = \frac{u \cdot v}{\lVert u \rVert \, \lVert v \rVert}
+$$
+
+Here $u$ and $v$ are any two vectors of the same size, $u \cdot v$ is their dot product, and $\lVert u \rVert$ is the length of $u$: the square root of the sum of its squared values. It's also called the norm, which is the name numpy uses. Try $u = [1, 2, 2]$ and $v = [2, 1, 2]$. The dot product is $2 + 2 + 4 = 8$. Each length is $\sqrt{1 + 4 + 4} = 3$. So the cosine is $8/9$, about 0.889.
+
+```python
+def cosine(u, v):
+    return u @ v / (np.linalg.norm(u) * np.linalg.norm(v))
+
+u, v = np.array([1., 2., 2.]), np.array([2., 1., 2.])
+print(u @ v, np.linalg.norm(u), np.linalg.norm(v), f"{cosine(u, v):.3f}")
+```
+
+```output
+8.0 3.0 3.0 0.889
+```
+
+The scale runs from −1 to 1. A cosine of 1 means the two vectors point in the same direction, whatever their lengths. A cosine of 0 means they're perpendicular and share no direction at all, which is the one-hot situation. A cosine of −1 means they point in opposite directions. There are other ways to measure distance between vectors. This series sticks to the dot product and the cosine because attention (Guide 4) and retrieval (Guide 12) are built on them.
+
+## Where the numbers come from: learning from neighbors
+
+A dense vector is only useful if its numbers are good ones, and nobody writes them by hand. The idea that makes them learnable is old: words that occur in similar contexts tend to have similar meanings ([Harris, 1954](https://doi.org/10.1080/00437956.1954.11659520); Firth, 1957, "A synopsis of linguistic theory 1930–1955"). It's known as the **distributional hypothesis**. Turn it into a training task by asking a network to predict which words appear near a given word. Two words with the same neighbors then call for the same predictions, and the easy way for the network to make the same predictions is to give those words similar embeddings.
+
+The classic version of this setup is **skip-gram**, one of the two architectures of **word2vec**, a 2013 method for learning word embeddings by predicting neighbors ([Mikolov et al., 2013a](https://arxiv.org/abs/1301.3781)). The other, CBOW (continuous bag of words), predicts a word from its neighbors. Skip-gram is Guide 1's network with words going in and words coming out:
+
+- The vocabulary is the 12 distinct words of the toy text.
+- The input is one word. Its embedding is a row of a 12 × 4 table `E`, this toy's $W_E$, so $d_{\text{model}} = 4$ for this toy.
+- The output is 12 logits, the embedding times a 4 × 12 matrix `W`, and softmax turns them into a probability for each word.
+- A training pair is a word and one of the words up to 2 positions away from it.
+
+One simplification: the toy runs a full softmax over the vocabulary, which real word2vec replaces with something cheaper. The accordion at the end of this section has the details.
+
+A word reaches the output only through its own row of `E`, multiplied by a `W` that every word shares. The same row gives the same logits, so two words that need the same predictions get pulled toward the same row.
+
+There's no activation function and no bias. Guide 1 warned that two layers with no activation between them collapse into one matrix, and that's true here as well: the network computes `E @ W`, a single 12 × 12 matrix of logits. But that matrix is forced to be the product of a 12 × 4 matrix and a 4 × 12 one, so every word has to be summed up in 4 numbers before any prediction is made. The collapse costs us nothing, because the 4-number summary is what we're after and a more expressive predictor isn't.
+
+```python
+ids = np.array([vocab.index(w) for w in words])            # (33,) the text as word IDs
+pairs = [(ids[i], ids[j]) for i in range(len(ids))
+         for j in range(max(0, i - 2), min(len(ids), i + 3)) if i != j]
+inputs = np.array([a for a, b in pairs])                   # (n_pairs,) the word we are at
+targets = np.array([b for a, b in pairs])                  # (n_pairs,) one of its neighbors
+n_pairs = len(pairs)
+print(n_pairs, [(vocab[a], vocab[b]) for a, b in pairs[:4]])
+```
+
+```output
+126 [('the', 'cat'), ('the', 'sat'), ('cat', 'the'), ('cat', 'sat')]
+```
+
+Training is Guide 1's loop: a forward pass, the cross-entropy loss, backpropagation, and a gradient-descent step with learning rate $\eta$. The forward pass begins with a lookup, `E[inputs]`, in place of a matrix multiply. Like Guide 1, every step uses all 126 pairs at once, which is a toy convenience. The backward pass is Guide 1's too. `dz` starts as predicted minus correct and is divided by `n_pairs` because the loss is an average over the pairs. Each entry of `W` gets its input times its logit's gradient, added up over the pairs, which is `X.T @ dz`. Each embedding gets the logit gradients carried back through `W`, which is `dz @ W.T`.
+
+```python
+rng = np.random.default_rng(0)
+E = rng.normal(0, 0.1, (12, 4))    # (12, 4) embedding table
+W = rng.normal(0, 0.1, (4, 12))    # (4, 12) output matrix
+eta = 0.5
+
+for step in range(3001):
+    X = E[inputs]                                          # (n_pairs, 4) one embedding per pair
+    z = X @ W                                              # (n_pairs, 12) logits
+    z = z - z.max(axis=1, keepdims=True)                   # softmax only sees differences; this stops exp overflowing
+    p = np.exp(z) / np.exp(z).sum(axis=1, keepdims=True)   # (n_pairs, 12) softmax
+    if step in (0, 3000):
+        print(step, f"{-np.log(p[np.arange(n_pairs), targets]).mean():.3f}")
+    dz = p.copy()
+    dz[np.arange(n_pairs), targets] -= 1                         # predicted minus correct
+    dz /= n_pairs
+    dW = X.T @ dz                                          # (4, 12)
+    dX = dz @ W.T                                          # (n_pairs, 4)
+    dE = np.zeros_like(E)
+    np.add.at(dE, inputs, dX)                              # each pair's gradient goes to its word's row
+    E -= eta * dE
+    W -= eta * dW
+```
+
+```output
+0 2.487
+3000 1.713
+```
+
+The loss starts near $\ln 12 \approx 2.485$, the cost of spreading probability evenly over 12 words. Each word then gets 1/12, and the cross-entropy is $-\ln(1/12) = \ln 12$. It falls to 1.713. It can't get to 0. Within two positions, "the" has all 11 other words as neighbors somewhere in the text, so no model can know which one a given pair holds. The best any model can do is match each word's neighbor frequencies, as in Guide 1.
+
+Now compare the embeddings that training produced.
+
+```python
+def sim(a, b):
+    return cosine(E[vocab.index(a)], E[vocab.index(b)])
+
+for a, b in [("mat", "log"), ("cat", "dog"), ("sat", "ran"), ("cat", "mat"), ("cat", "the")]:
+    print(f"{a}, {b}: {sim(a, b):.2f}")
+```
+
+```output
+mat, log: 0.99
+cat, dog: 0.95
+sat, ran: 0.86
+cat, mat: 0.72
+cat, the: -0.52
+```
+
+"mat" and "log" each fill the gap in "on the ___ and", so their neighbors are almost the same words, and their embeddings point in almost the same direction. Nobody told the network that both are things you can sit on. It was only asked to predict neighbors, and the same neighbors called for the same 4 numbers. "cat" and "dog" share most of their contexts, and so do the verbs "sat" and "ran", a little less tightly.
+
+The fourth line is a warning: "cat" scores 0.72 with "mat", although one is an animal and the other is a floor covering. In a 33-word text, every noun follows "the", and almost every one precedes a verb or "and", so they all look somewhat alike. The cosine measures shared contexts, and it has no access to dictionary meaning. More text sharpens the distinctions without changing what is measured. Guide 12 comes back to this, because a high similarity score between two passages says they're used alike, which isn't the same as one answering the other. The negative score for "cat" and "the" needs the same care. It says their neighbors differ. It doesn't make them opposites, and words with opposite meanings often share contexts and can score high ([Mohammad et al., 2013](https://aclanthology.org/J13-3004/)).
+
+<details>
+<summary>Scaling skip-gram up</summary>
+
+Our toy computes a softmax over all 12 words at every step. With a vocabulary of 50,000 words, each step would sum over all 50,000, for every training pair. word2vec avoids that with a hierarchical softmax or, more commonly, with negative sampling ([Mikolov et al., 2013b](https://arxiv.org/abs/1310.4546)). Negative sampling swaps the task: the model learns to tell a word's real neighbors from a handful of words drawn at random, and never computes the full softmax.
+
+GloVe ([Pennington, Socher & Manning, 2014](https://aclanthology.org/D14-1162/)) reaches similar embeddings from the other end, by fitting them to a table of how often each pair of words occurs together.
+
+You may have met the claim that embedding arithmetic solves analogies, with "king − man + woman" landing near "queen". It holds for some relations in embeddings trained on large amounts of text ([Mikolov, Yih & Zweig, 2013](https://aclanthology.org/N13-1090/)), and how often it holds depends on how the test is scored, for instance on whether the three input words are barred from being the answer ([Linzen, 2016](https://aclanthology.org/W16-2503/)).
+
+</details>
+
+## Inside an LLM: the table trains with everything else
+
+An LLM (large language model) doesn't import word2vec vectors. Its embedding table $W_E$ starts as random numbers and is trained by backpropagation from the model's own loss, the cross-entropy on the next token, by the same mechanics as $W^{(1)}$ in Guide 1. The table is a parameter like any other. It ends up holding the vectors that helped predict the next token, not a dictionary of stored meanings.
+
+The line `np.add.at(dE, inputs, dX)` in the training loop adds each pair's gradient to the row of that pair's input word and to no other row. Guide 1's toy used its whole dataset in every step, and so does this one. Real training feeds the model a small slice of text per step, which Guide 7 covers, and all you need here is that a step sees only some tokens. In an LLM the lookup then works the same way: a training step sends gradient through the lookup only to the rows of tokens that appeared in that step's text. GPT-2 also reuses this table at its output, where the last step needs a matrix with the same number of entries, $d_{\text{model}} \times \lvert\mathcal{V}\rvert$, to turn a vector back into one logit per token. That matrix is $W_E$ turned on its side. There every row gets gradient at every step, as the accordion at the end of this section explains.
+
+The table's size is the vocabulary size times $d_{\text{model}}$. GPT-2 small's has one row of 768 numbers for each of 50,257 tokens:
+
+```python
+token_ids = [464, 3797, 3332, 319, 262]            # "The cat sat on the", from Guide 2
+W_E = np.zeros((50257, 768), dtype=np.float32)     # a stand-in with the shape of GPT-2 small's table
+X = W_E[token_ids]                                 # (5, 768) = (n, d_model)
+print(X.shape, W_E.size, f"{W_E.size / 124_439_808:.1%}")
+print(50257 * 12288, f"{50257 * 12288 / 175e9:.2%}")   # the largest GPT-3 model's table
+```
+
+```output
+(5, 768) 38597376 31.0%
+617558016 0.35%
+```
+
+That's 38,597,376 parameters out of the 124,439,808 in [GPT-2 small's released model](https://huggingface.co/openai-community/gpt2), nearly a third of the model. The share is a small-model effect. The rest of the model is the transformer, a stack of layers. The table grows in proportion to $d_{\text{model}}$. Each layer of the transformer maps one vector of $d_{\text{model}}$ numbers to another and holds several matrices to do it, each about $d_{\text{model}} \times d_{\text{model}}$ (Guide 5 opens one up). Those grow with the square of $d_{\text{model}}$, and bigger models also stack more layers. The second line is the largest GPT-3 model. Assuming it keeps GPT-2's 50,257-token vocabulary, its table has about 618 million parameters, which is 0.35% of its 175 billion ([Brown et al., 2020](https://arxiv.org/abs/2005.14165)). For the running example, the lookup returns a matrix $X$ with one row per token, of shape $n \times d_{\text{model}}$, here $5 \times 768$. For now, treat $X$ as what the transformer's first layer receives. GPT-2 first adds information about each token's position to every row, which Guide 4 covers, and Guide 5 covers the layers.
+
+<details>
+<summary>Reusing the table at the output</summary>
+
+At its output, a language model has to turn a vector of $d_{\text{model}}$ numbers back into one logit per vocabulary entry, which takes a matrix of the same size as $W_E$. GPT-2 uses $W_E$ itself for that job, a choice called weight tying ([Press & Wolf, 2017](https://aclanthology.org/E17-2025/)). It's why the parameter count above includes the table once and not twice. With tying, the output side sends gradient to every row at every step, because every token gets a logit, so the "only the rows that appeared" rule describes the lookup alone. Guide 6 covers the output side.
+
+</details>
+
+## Looking at embeddings without being fooled
+
+You can't draw a vector of 4 numbers, let alone 768, so every picture of embeddings squashes them down to 2. A standard way to do it is **principal component analysis (PCA)**, which finds the two directions along which the embeddings vary most and plots each one by its position along those two. The code subtracts the mean first, so directions are measured from the center of the cloud. Variation here means how far the points spread around that center. The singular value decomposition (SVD) then factors the centered table into three pieces. Of those pieces, `U` goes unused. `Vt` holds the directions as rows, sorted by how much the points spread along them, and squaring a value of `s` gives a number proportional to that spread. The first two squares over the total is the share of variation the picture keeps.
+
+```python
+centered = E - E.mean(axis=0)                      # (12, 4)
+U, s, Vt = np.linalg.svd(centered, full_matrices=False)
+print(f"{(s[:2] ** 2).sum() / (s ** 2).sum():.3f}")
+Vt *= np.sign(Vt[np.arange(4), np.abs(Vt).argmax(axis=1)])[:, None]   # fix each direction's sign
+xy = centered @ Vt[:2].T                           # (12, 2) coordinates for the figure
+for i in range(0, 12, 4):
+    print("  ".join(f"{w} ({a:.2f}, {b:.2f})" for w, (a, b) in zip(vocab[i:i + 4], xy[i:i + 4])))
+```
+
+```output
+0.704
+and (2.66, 0.45)  cat (-1.42, 1.57)  dog (-1.35, 2.01)  log (-2.37, 0.26)
+mat (-2.37, -0.15)  on (2.36, 1.57)  ran (0.19, -1.36)  sat (-0.34, -1.97)
+saw (1.37, -0.87)  the (0.19, 0.65)  then (-0.12, -2.68)  to (1.21, 0.53)
+```
+
+The first number says the two directions keep 70.4% of the variation in the toy table. The rest is lost in the squashing. A direction's sign is arbitrary, so the code fixes it to make every machine draw the same picture.
+
+<figure>
+<PcaFigure />
+<figcaption>Figure 2. The 12 toy embeddings in two dimensions. The axes are directions chosen by PCA, not features, and 70.4% of the variation is shown. "mat" and "log" sit side by side, as do "cat" and "dog", and "sat" and "ran" sit close together.</figcaption>
+</figure>
+
+Pictures like this mislead in two ways. The axes have no meaning of their own, and the same goes for the 4 columns of `E` or the 768 of GPT-2's table. It's tempting to hope one column means "animal" and another "verb", and in general no single column does. What training shapes is how whole vectors point relative to one another. The other trap is the method. t-SNE, short for t-distributed stochastic neighbor embedding ([van der Maaten & Hinton, 2008](https://www.jmlr.org/papers/v9/vandermaaten08a.html)), is another common way to draw embeddings. It can give quite different pictures of the same data depending on its perplexity setting, roughly how many nearby points each point is assumed to be grouped with ([Wattenberg, Viégas & Johnson, 2016](https://distill.pub/2016/misread-tsne/)). That setting has nothing to do with the language-model measure of the same name. So a cluster in a plot is a hint to check with cosines.
+
+## What one vector per token cannot do
+
+An embedding table gives each token ID one row, and that row is the same wherever the token appears.
+
+The first limit of that design is context. Here are two sentences run through GPT-2's tokenizer with `tiktoken` 0.14.0, the series pin as of October 2026. As in Guide 2, its first call downloads about 1.5 MB of vocabulary files and caches them.
+
+```python
+import tiktoken
+
+enc = tiktoken.get_encoding("gpt2")
+for sentence in ["He sat on the river bank.", "She got a bank loan."]:
+    print(enc.encode(sentence))
+print(repr(enc.decode([3331])), enc.encode(" cat"), enc.encode(" Cat"))
+```
+
+```output
+[1544, 3332, 319, 262, 7850, 3331, 13]
+[3347, 1392, 257, 3331, 8063, 13]
+' bank' [3797] [5181]
+```
+
+Token 3331 is ` bank`, and it's in both lists. (The last line also prints the IDs of ` cat` and ` Cat` from this guide's opening.) A riverside and a lender get the same ID, so they get the same row of $W_E$. Which bank is meant has to be worked out later, from other tokens in the text. An embedding that's fixed per token like this is a **static embedding**. A **contextual embedding** is a vector for a token that depends on the text around it, and producing those is the job of the layers after the table.
+
+<figure>
+<BankFigure />
+<figcaption>Figure 3. One row, two meanings. The token " bank" has ID 3331 in both sentences, so both look up the same row of the embedding table. The faded words are the context that the lookup ignores.</figcaption>
+</figure>
+
+The second limit is order. Average the toy embeddings of the words in "the cat saw the dog", do the same for "the dog saw the cat", and compare.
+
+```python
+def mean_embedding(sentence):
+    return E[[vocab.index(w) for w in sentence.split()]].mean(axis=0)   # (4,)
+
+print(np.allclose(mean_embedding("the cat saw the dog"), mean_embedding("the dog saw the cat")))
+```
+
+```output
+True
+```
+
+The two sentences contain the same words, so they produce the same average, and any method that only pools embeddings can't tell who saw whom. A lookup has nowhere to record that "cat" came second in one sentence and fifth in the other.
+
+Guide 4 supplies both missing pieces. Attention lets each token's vector take in information from other tokens, and position information tells the model where each token sits. For now, read "other tokens" loosely. In GPT-2 a token can draw only on the tokens before it, and Guide 4 shows why. Contextual vectors don't need a transformer, for what it's worth: ELMo produced them with recurrent networks, an older design that reads tokens one at a time and carries a running summary ([Peters et al., 2018](https://aclanthology.org/N18-1202/)).
+
+## What carries forward
+
+Each piece of this guide gets used again:
+
+- The $n \times d_{\text{model}}$ matrix $X$, once Guide 4 has added position information to it, is the input to attention (Guide 4) and to the transformer stack (Guide 5).
+- The dot product that scored similarity here is the score at the center of attention (Guide 4).
+- The table is trained along with everything else during pre-training (Guide 7).
+- Dense retrieval (Guide 12) finds stored passages for a question by comparing vectors, scored by cosine similarity or the dot product. A passage's vector there comes from running the passage through a model's layers, not from averaging table rows. A high score makes a passage a candidate to check, just as "cat" scored 0.72 with "mat" without meaning the same thing.
+
+So an embedding table gives each token ID a row of learned numbers, and training pulls the rows of tokens that appear in similar contexts close together. Each row is the same wherever its token appears, though. It's only a starting point, and context and order have to come from the layers that follow.

@@ -1,0 +1,8 @@
+# GitHub Actions only. numpy, torch and tiktoken are pinned on purpose: the guides' printed
+# outputs depend on them, so a bump means re-running every guide, never an automated PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
