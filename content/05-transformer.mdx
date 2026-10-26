@@ -127,7 +127,7 @@ For the running example, $X$ goes in as $5 \times 768$ and comes out as $5 \time
 <figcaption>Figure 1. One block acting on the residual streams of three tokens. Step 1: each stream is normalized, attention draws on its own stream and the streams to the left, and the result is added back. Step 2: each stream is normalized, the MLP works on it alone, and the result is added back. Step 3: the block as a single unit.</figcaption>
 </figure>
 
-Here is the block in PyTorch. `nn.Linear` is a weight matrix and a bias row, Guide 1's layer without the activation function. Guide 1 ran a batch of inputs as rows of $X$. PyTorch layers expect a batch of whole sequences, stacked on a new leading axis, so the shapes in the comments start with the batch size $B$, and the code follows PyTorch's habit of calling the whole batch `x`. An `nn.Module` keeps track of the layers assigned to it and their parameters, and calling it like a function runs its `forward`. The `residual` and `norm` switches are for the experiment later.
+Here is the block in PyTorch. `nn.Linear` is a weight matrix and a bias row, Guide 1's layer without the activation function. Guide 1 ran a batch of inputs as rows of $X$. PyTorch modules expect a batch of whole sequences, stacked on a new leading axis, so the shapes in the comments start with the batch size $B$, and the code follows PyTorch's habit of calling the whole batch `x`. An `nn.Module` keeps track of the modules assigned to it and their parameters, and calling it like a function runs its `forward`. The `residual` and `norm` switches are for the experiment later.
 
 The `attention` method is Guide 4's computation for every head at once. One layer, `qkv`, produces all the heads' queries, keys and values side by side in a row of $3\,d_{\text{model}}$ numbers. `view` and `permute` only cut that row into three slices of $h$ heads each and move the head axis forward. `triu(1)` keeps the $-\infty$ entries above the diagonal, which is the causal mask. The last line puts the heads' outputs side by side again and applies $W^O$, Guide 4's matrix that recombines them.
 
@@ -281,7 +281,7 @@ def floor(k):                                          # lowest possible loss wi
     return sum(count * math.log(context[c] / count) for (c, ch), count in seen.items()) / len(inputs)
 with torch.no_grad():                                  # inference only: no gradients needed
     losses = F.cross_entropy(model(inputs).reshape(-1, len(vocab)), targets.reshape(-1), reduction="none")   # 1,792 losses
-by_position = losses.view(len(inputs), n).mean(0)      # 112 × 16, averaged over the 112 windows
+by_position = losses.view(len(inputs), n).mean(0)      # 16 values: the 112 × 16 losses averaged over the 112 windows
 for k in range(1, 17):
     print(f"{k:2}  model {by_position[k - 1].item():.3f}  floor {floor(k):.3f}")
 ```

@@ -114,6 +114,7 @@ One term per concept, as used in Guides 1–6. Declared synonyms are other names
 | window | A stretch of the token stream as long as the context, used as one training sequence (16 characters in Guide 5's toy, 32 in Guide 7's, 64 in Guide 8's). | — | 5 |
 | floor (loss floor) | The lowest average loss any predictor can reach on a given set of examples with a given amount of context. | — | 4 |
 | RMSNorm (optional) | Root mean square normalization: divides a row by the root mean square of its values, with no mean subtraction; named only. | — | 5 |
+| gated activation (optional) | An MLP activation in which one projection of the row scales another, used by LLaMA in place of GELU; named only. | gated MLP | 5 |
 | encoder, decoder (optional) | The two halves of the original transformer: the encoder reads the input sentence, the decoder writes the output; GPT-2 keeps only the decoder side. | — | 5 |
 | warm-up | A stretch at the start of training where the learning rate is raised slowly from near zero; named only in Guide 5, part of the learning-rate schedule in Guide 7. | — | 5 |
 | piece (of a block) | Informal word for any of a block's four ingredients: attention, the MLP, the residual connections and layer normalization. Wider than "part". | — | 5 |

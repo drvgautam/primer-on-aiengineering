@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Guides 5 and 6: editorial fixes from the Code and Consistency reviews of the reproducibility change (wording, a shape comment); glossary and notation appendices updated
+
 ## 0.1.0 (2026-10-26)
 
 Part 1, "How LLMs work":
