@@ -6,7 +6,9 @@ usage: python tools/verify_notebooks.py [slug ...] [--write] [--gpt2] [--rtol 1e
 Each notebook runs in a fresh kernel with code/notebooks/ as its directory, as a reader's would.
 A code cell passes when what it prints matches the guide's ```output block for that block
 (tokens equal, numbers within --rtol, the same rule as the authoring repo's run-code.py), or,
-for a block the guide quotes no output for, when it runs without error.
+for a block the guide quotes no output for, when it runs without error. A `varies` block
+(output depends on the processor, such as a training run) passes when it runs; a difference
+from the guide is listed as a note, not a failure.
 
 --write   save the executed notebooks, outputs included, for committing
 --gpt2    also run the %%gpt2 cells (needs GPT-2 small's 548 MB weights; see series/running-example.py)
@@ -59,7 +61,7 @@ def verify(path, rtol, write, gpt2):
         os.environ.clear()
         os.environ.update(saved_env)
 
-    problems, checked = [], 0
+    problems, notes, checked = [], [], 0
     for cell in nb.cells:
         if cell.cell_type != "code":
             continue
@@ -80,12 +82,15 @@ def verify(path, rtol, write, gpt2):
         elif err:
             problems.append(f"guide line {line}: {err}")
         elif "expected" in b and not same(b["expected"], printed(cell), rtol):
+            if b["flags"].get("varies"):
+                notes.append(f"guide line {line}: varies, differs from the guide on this machine")
+                continue
             problems.append(f"guide line {line}: output differs from the guide\n"
                             f"    guide:    {b['expected'].strip()[:300]!r}\n"
                             f"    notebook: {printed(cell).strip()[:300]!r}")
     if write:
         nbformat.write(nb, path)
-    return checked, problems, time.time() - t0
+    return checked, problems, notes, time.time() - t0
 
 
 def main():
@@ -100,10 +105,10 @@ def main():
         if wanted and e["slug"] not in wanted:
             continue
         path = NOTEBOOKS / f"{e['guide']:02d}-{e['slug']}.ipynb"
-        checked, problems, secs = verify(path, rtol, "--write" in args, "--gpt2" in args)
+        checked, problems, notes, secs = verify(path, rtol, "--write" in args, "--gpt2" in args)
         status = "PASS" if not problems else f"FAIL ({len(problems)})"
         print(f"{path.name:28} {checked:3} cells checked  {secs:6.1f}s  {status}")
-        for p in problems:
+        for p in problems + notes:
             print("    " + p)
         failed |= bool(problems)
     sys.exit(1 if failed else 0)

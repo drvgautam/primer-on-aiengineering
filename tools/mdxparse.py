@@ -8,6 +8,8 @@ the conventions the guides were checked with. The info string after ```python:
   ```python norun         shown to the reader, never executed
   ```python expect-error  must raise
   ```python timeout=120   per-session time limit in seconds (default 60)
+  ```python varies        output depends on the processor and thread count (a training run):
+                          it must run, but may print different digits than the guide
   ```output               immediately after a python block: the exact output the guide shows
 """
 import math

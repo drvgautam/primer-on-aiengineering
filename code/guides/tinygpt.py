@@ -1,9 +1,12 @@
 """Guide 5's toy transformer, shared by later guides so they don't repeat it.
 
 The code is Guide 5's, unchanged: the same classes, text, windows and training loop, so a
-model trained here with the same seed gives the same numbers as in Guide 5.
+model trained here with the same seed gives the same numbers as in Guide 5 on the same machine.
+Training's last digits vary between processors and thread counts, so `load_trained()` loads
+Guide 5's trained model from guides/checkpoints/tinygpt.pt instead of retraining it.
 """
 import math
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -74,3 +77,24 @@ def train(model, steps, report=()):
         if step < steps:
             optimizer.zero_grad(); loss.backward(); optimizer.step()
     return loss.item()
+
+
+CHECKPOINT = os.path.join(os.path.dirname(__file__), "checkpoints", "tinygpt.pt")
+
+
+def load_trained():
+    """Guide 5's model after its 500 training steps, and its final training loss.
+
+    Loads the saved parameters, so every reader gets the guide's numbers. If the file is
+    missing, trains from seed 0 exactly as Guide 5 did and saves the result.
+    """
+    if not os.path.exists(CHECKPOINT):
+        torch.manual_seed(0)
+        model = TinyGPT()
+        train(model, 500)
+        torch.save(model.state_dict(), CHECKPOINT)
+    model = TinyGPT()
+    model.load_state_dict(torch.load(CHECKPOINT))
+    with torch.no_grad():
+        loss = F.cross_entropy(model(inputs).reshape(-1, len(vocab)), targets.reshape(-1))
+    return model, loss.item()

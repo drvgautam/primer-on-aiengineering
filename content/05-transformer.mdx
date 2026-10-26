@@ -238,7 +238,7 @@ Time to train `TinyGPT`. The data is Guide 1's toy text, 128 characters, cut int
 
 The code simplifies twice. The optimizer is **Adam** (adaptive moment estimation), a refinement of gradient descent that adapts the step size for each parameter ([Kingma & Ba, 2015](https://arxiv.org/abs/1412.6980)). Treat it as gradient descent for now. Guide 7 explains it. And every step uses all 112 windows, where real training uses a small sample of the data at each step, which Guide 7 covers.
 
-```python
+```python varies
 text = ("the cat sat on the mat and the dog sat on the log and the "
         "cat saw the dog then the dog ran to the cat and the cat ran on the mat")
 vocab = sorted(set("abcdefghijklmnopqrstuvwxyz "))                             # the space is ID 0, as in Guide 1
@@ -267,11 +267,11 @@ final_loss = train(model, 500, report=(0, 50, 100, 200, 500))
 500 0.152
 ```
 
-The loss starts near $\ln 27 \approx 3.30$, the value for guessing evenly among 27 characters, as in Guide 1. Within 100 steps it's far below the 0.884 where Guide 1's network stalled. On a different processor your last digits may differ slightly from the ones printed in this guide.
+The loss starts near $\ln 27 \approx 3.30$, the value for guessing evenly among 27 characters, as in Guide 1. Within 100 steps it's far below the 0.884 where Guide 1's network stalled. Training isn't bit-for-bit repeatable across machines, even with a fixed seed. On a different processor, or with a different number of threads, your last digits may differ slightly from the ones printed here. So can every later output in this guide that depends on a training run, including the continuation below. Guide 6 loads this trained model from a saved file, so its numbers are the same on every machine.
 
 An average hides where that gain comes from. The next block splits the loss by position in the window. Position 1 has one character of context, position 16 has sixteen. Beside each loss it prints the floor, the lowest loss any predictor can reach with that much context. It's Guide 4's counting argument, redone on these same 1,792 examples (112 windows of 16 positions): for each context of $k$ characters, count how often each next character follows it. The best possible predictor outputs exactly those frequencies, and the floor is its average cross-entropy.
 
-```python
+```python varies
 from collections import Counter
 def floor(k):                                          # lowest possible loss with k characters of context
     seen = Counter((text[start:start + k], text[start + k]) for start in range(len(inputs)))
@@ -314,7 +314,7 @@ With one character the model does about as well as one character allows, which w
 
 At every position the model sits almost exactly on the floor, and from 14 characters on both are near zero. A floor of zero means every context of that length in this text has only one continuation. The model has memorized a 128-character text. Ask it to continue "the c", taking the highest-scoring character each time. That's the simplest rule for choosing, and Guide 6 covers the ones LLMs usually run.
 
-```python
+```python varies
 out = [vocab.index(c) for c in "the c"]
 with torch.no_grad():
     while len(out) < 45:
@@ -331,7 +331,7 @@ That's the training text, word for word. A loss of 0.001 at the last positions, 
 
 Guide 4's attention weights came from random matrices and meant nothing. These are trained. For the window "the cat sat on t", the code prints each head's average weight on the character just before the current one. For comparison, take a head that spreads its weight evenly. Position $k$ can see $k$ characters, so it would put $1/k$ on the previous one, and the average of $1/2, 1/3, \ldots, 1/16$ is about 0.16.
 
-```python
+```python varies
 window = torch.tensor([[vocab.index(c) for c in "the cat sat on t"]])
 with torch.no_grad():
     model(window)
@@ -351,7 +351,7 @@ In this run, one head in each block puts much of its weight on the previous char
 
 Do the residual connections and the normalization earn their place? The `switches` let you test it. The next block trains three 8-block models for 300 steps each: the full block, one with the additions removed, and one with the normalization removed. It ran for about half a minute on a 4-core laptop CPU in October 2026, and yours will differ. It first prints the floor for a predictor with no context, counted on these targets. Then for each model it prints two numbers. The first is measured before training: the standard deviation of each slot across the 16 positions, averaged, then divided by the standard deviation of all the numbers at the top of the stream. Near 1 means most of the variation is between positions, and near 0 means every position holds almost the same vector. The second is the loss after training.
 
-```python timeout=120
+```python timeout=120 varies
 counts = Counter(targets.reshape(-1).tolist())             # how often each character is a target
 print("no-context floor", f"{sum(count * math.log(targets.numel() / count) for count in counts.values()) / targets.numel():.3f}")
 for name, switches in [("full block", {}), ("no residual", {"residual": False}), ("no normalization", {"norm": False})]:

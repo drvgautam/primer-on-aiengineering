@@ -229,6 +229,9 @@ def build(entry, release, order):
         text = intro(prev)
         if text:
             md.append(text)
+        if b["flags"].get("varies"):
+            md.append("> *This output depends on a training run, so on your processor, or with a different "
+                      "number of threads, its last digits (and sometimes its text) can differ from the guide's.*")
         if b["flags"].get("fresh") and not first_code:
             md.append("> *The guide starts a clean session here: the next cell clears every variable, "
                       "as if you'd restarted the kernel (the working directory stays `code/`).*")
@@ -250,6 +253,8 @@ def build(entry, release, order):
             tags.append("needs-gpt2")
         if b["flags"].get("expect-error"):
             tags.append("raises-exception")
+        if b["flags"].get("varies"):
+            tags.append("varies")
         if "timeout" in b["flags"]:
             meta["primer"]["timeout"] = int(b["flags"]["timeout"])
         if tags:

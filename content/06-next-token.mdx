@@ -28,24 +28,22 @@ Why the last row? Every position predicts the token that follows it. When you're
 
 Training pairs come from shifting a sequence by one, so the target at each position is the next token (Guide 2), and the causal mask stops each position from drawing on later tokens (Guide 4). Together they let one forward pass make a prediction at every position, each from the true tokens before it. This setup is called **teacher forcing**, because the model is always shown the real preceding text, never its own guesses.
 
-The toy model from Guide 5 shows it at small scale. Its code now lives in a shared file, `guides/tinygpt.py`, so this guide can import it instead of repeating it. The code in this guide uses PyTorch 2.14.1, pinned in the series `requirements.txt` as of October 2026, and its blocks run in order and share variables. The first block trains the toy exactly as Guide 5 did: 27 characters, 2 blocks, 112 windows of 16 characters, Adam, 500 steps. It prints the training text first, which ends "ran on the mat".
+The toy model from Guide 5 shows it at small scale. Its code now lives in a shared file, `guides/tinygpt.py`, so this guide can import it instead of repeating it. The code in this guide uses PyTorch 2.14.1, pinned in the series `requirements.txt` as of October 2026, and its blocks run in order and share variables. The first block loads the toy as Guide 5 left it: 27 characters, 2 blocks, trained with Adam for 500 steps on 112 windows of 16 characters. Retraining takes a few seconds, but its last digits vary between processors. So the trained parameters are saved in a file that ships with the repository, `guides/checkpoints/tinygpt.pt`, and loading them gives every reader the numbers printed here. Delete the file and `load_trained` retrains from the same seed and saves it again. The block prints the training text first, which ends "ran on the mat", then the final training loss.
 
 ```python fresh
 import sys, math
 sys.path.insert(0, "guides")                   # run from the repository root
 import torch
 import torch.nn.functional as F
-from tinygpt import TinyGPT, train, inputs, targets, vocab, text
+from tinygpt import load_trained, inputs, targets, vocab, text
 print(text)                                    # the 128-character training text
-torch.manual_seed(0)
-model = TinyGPT()
-final_loss = train(model, 500, report=(0, 500))   # prints the step and the training loss
+model, final_loss = load_trained()             # Guide 5's model after 500 steps, and its training loss
+print(f"{final_loss:.3f}")
 ```
 
 ```output
 the cat sat on the mat and the dog sat on the log and the cat saw the dog then the dog ran to the cat and the cat ran on the mat
-0 3.306
-500 0.152
+0.152
 ```
 
 One forward pass over all 112 windows gives a logit for every character at every position:
