@@ -55,7 +55,7 @@ export default function RootLayout({ children }) {
         <footer className="site-footer">
           <div className="site-footer-inner">
             <p>
-              <strong>{release.title}</strong> by {release.author}. Version {release.version}.
+              <strong>{release.title}</strong>. Version {release.version}.
             </p>
             <p>
               Text and figures <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code{" "}
