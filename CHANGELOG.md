@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Guide 7: two fixes from the Code review of the reproducibility change (the misses are "misspellings and fragments"; a shape comment says `× ctx`), and its code session may take up to 90 s, for headroom on a busy or slower machine
+
 ## 0.2.0 (2026-10-27)
 
 Part 2, "Lifecycle", begins:

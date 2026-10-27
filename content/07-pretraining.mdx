@@ -27,7 +27,7 @@ One paragraph is too small to learn a pattern from, so this guide builds a bigge
 
 That's 6 × 4 × 4 × 6 = 576 possible sentences. The code holds back one fifth of them, 115 sentence types chosen at random, which never appear in training. They form the **held-out set**, also called the **validation set**: text kept back so you can test the model on something it has never seen. The code in this guide uses PyTorch 2.14.1, pinned in the series `requirements.txt` as of October 2026, and its blocks run in order and share variables.
 
-```python fresh
+```python fresh timeout=90
 import random
 nouns  = ["cat", "dog", "rat", "fox", "owl", "hen"]
 verbs  = ["sat", "ran", "hid", "lay"]
@@ -88,7 +88,7 @@ def encode(text):
     return torch.tensor([vocab.index(c) for c in text])
 
 def windows(ids, ctx, stride):                 # every ctx-long slice, one starting each stride characters
-    inputs = ids[:-1].unfold(0, ctx, stride)   # (number of windows) × n
+    inputs = ids[:-1].unfold(0, ctx, stride)   # (number of windows) × ctx
     targets = ids[1:].unfold(0, ctx, stride)   # the same windows, one step later
     return inputs, targets
 
@@ -263,7 +263,7 @@ new: ['the fox lay on the bed', 'the dog ran by the bed', 'the hen hid on the be
 misses: ['the log', 'the  lay on the mat', 'the owl hid near the sog', 'the owl sat neat the pot']
 ```
 
-Most of what it writes follows the pattern; the misses are misspellings, fragments and sentences run together. All 13 sentences it wrote that never appeared in training are held-out types, combinations it built from parts it had seen in other sentences, which memorization can't do.
+Most of what it writes follows the pattern; the misses are misspellings and fragments. All 13 sentences it wrote that never appeared in training are held-out types, combinations it built from parts it had seen in other sentences, which memorization can't do.
 
 ## Scale: parameters, data and compute
 
