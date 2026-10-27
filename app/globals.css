@@ -208,7 +208,6 @@ h1, h2, h3, h4 { font-family: var(--sans); line-height: 1.2; letter-spacing: -0.
 .hero h1 { font-size: clamp(2.3rem, 4.6vw, 3.6rem); font-weight: 750; letter-spacing: -0.035em; margin: 0 0 1.25rem; }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .lede { font-size: 1.15rem; color: var(--ink-soft); margin: 0 0 2rem; max-width: 36rem; }
-.byline { margin: 1.5rem 0 0; font: 500 0.9rem var(--sans); color: var(--muted); }
 
 .hero-card {
   margin: 0;
@@ -237,6 +236,18 @@ h1, h2, h3, h4 { font-family: var(--sans); line-height: 1.2; letter-spacing: -0.
 .stats div + div { border-left: 1px solid var(--rule); }
 .stats strong { font: 750 1.6rem/1.2 var(--sans); letter-spacing: -0.02em; }
 .stats span { font: 0.85rem var(--sans); color: var(--muted); }
+
+.book-band {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  gap: 3rem;
+  align-items: center;
+  margin-bottom: 5rem;
+}
+.book-cover { display: block; transition: transform 0.15s ease; }
+.book-cover img { display: block; width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 4px; box-shadow: var(--shadow); }
+.book-cover:hover { transform: translateY(-2px); }
+.book-band .section-lede { margin-bottom: 1.5rem; }
 
 .section-title { font-size: clamp(1.6rem, 3vw, 2.1rem); font-weight: 750; margin: 0 0 0.75rem; }
 .section-lede { color: var(--ink-soft); margin: 0 0 2.5rem; max-width: 42rem; }
@@ -461,6 +472,7 @@ th, td { border-bottom: 1px solid var(--rule); padding: 0.5rem 0.75rem; text-ali
   .toc-mobile .toc-list a { border-left: 0; padding-left: 0; }
   .hero { grid-template-columns: minmax(0, 1fr); gap: 2.5rem; padding-top: 3rem; }
   .ways-grid { grid-template-columns: minmax(0, 1fr); }
+  .book-band { grid-template-columns: 9rem minmax(0, 1fr); gap: 1.5rem; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .stats div:nth-child(3) { border-left: 0; }
   .stats div:nth-child(n + 3) { border-top: 1px solid var(--rule); }
@@ -472,6 +484,8 @@ th, td { border-bottom: 1px solid var(--rule); padding: 0.5rem 0.75rem; text-ali
   .guide-head { padding-top: 2rem; }
   .pager { grid-template-columns: 1fr; }
   .contribute { padding: 1.5rem; }
+  .book-band { grid-template-columns: minmax(0, 1fr); }
+  .book-cover { width: 10rem; }
   pre { margin-left: -0.25rem; margin-right: -0.25rem; }
 }
 

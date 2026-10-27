@@ -3,6 +3,8 @@ import { allGuides, colabUrl, notebookUrl, release, repoUrl, sampleBlock } from 
 import { Arrow, Book, Clock, Download, GitHub, Notebook } from "../components/site/icons"
 
 const pdf = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/primer-on-aiengineering.pdf`
+// The book cover cropped above the rule and author line, so it reads as a thumbnail.
+const cover = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/cover.jpg`
 
 function GuideCard({ g }) {
   return (
@@ -83,7 +85,6 @@ export default function Home() {
               <GitHub width={16} height={16} /> GitHub
             </a>
           </div>
-          <p className="byline">By {release.author}</p>
         </div>
         {sample ? (
           <figure className="hero-card" aria-label={`A code block from Guide ${sample.guide.guide}`}>
@@ -107,6 +108,22 @@ export default function Home() {
         <div><strong>{totalMinutes} min</strong><span>total reading</span></div>
         <div><strong>{guides.length}</strong><span>runnable notebooks</span></div>
         <div><strong>0</strong><span>hand-typed outputs</span></div>
+      </section>
+
+      <section className="book-band" aria-labelledby="book-title">
+        <a href={pdf} className="book-cover">
+          <img src={cover} alt={`Cover of ${release.title}`} width={827} height={1000} />
+        </a>
+        <div>
+          <h2 id="book-title" className="section-title">Also a book</h2>
+          <p className="section-lede">
+            Every released guide in one PDF, version {release.version}: all figure steps drawn, the “going deeper”
+            sections in full, a glossary and a notation table.
+          </p>
+          <a href={pdf} className="button button-primary">
+            <Download width={16} height={16} /> Download the PDF
+          </a>
+        </div>
       </section>
 
       <section className="ways" aria-labelledby="ways-title">
