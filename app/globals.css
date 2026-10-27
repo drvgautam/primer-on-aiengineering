@@ -319,6 +319,7 @@ h1, h2, h3, h4 { font-family: var(--sans); line-height: 1.2; letter-spacing: -0.
 .series-num { font: 600 0.8rem/1.4rem var(--mono); min-width: 1.2rem; color: var(--muted); line-height: inherit; }
 .series-nav a.active .series-num { color: var(--accent-ink); }
 .series-soon > span { color: var(--muted); opacity: 0.6; }
+.series-part + .series-part { margin-top: 1.5rem; }
 .toc-list { border-left: 1px solid var(--rule); }
 .toc-list a { display: block; padding: 0.3rem 0 0.3rem 0.9rem; margin-left: -1px; border-left: 2px solid transparent; text-decoration: none; color: var(--muted); }
 .toc-list a:hover { color: var(--ink); }
@@ -424,6 +425,8 @@ pre:hover .copy-button, .copy-button:focus-visible { opacity: 1; }
 figure { margin: 2.25rem 0; }
 .prose figure:has(svg) { padding: 1.25rem; border: 1px solid var(--rule); border-radius: 14px; background: var(--surface); }
 figure svg { display: block; margin: 0 auto; height: auto; max-width: 100%; }
+/* Figure labels are laid out for the original Georgia stack; a wider font overflows the viewBox. */
+figure svg { font-family: Georgia, "Times New Roman", serif; }
 figcaption { margin-top: 0.85rem; color: var(--muted); font: 0.86rem/1.55 var(--sans); }
 
 /* Accordions: the optional "going deeper" sections */

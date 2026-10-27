@@ -1,7 +1,7 @@
 # A Primer on AI Engineering
 
 Short, worked, runnable guides to how large language models work, from a single neuron to
-next-token prediction. Each guide reads in 10 to 20 minutes, and every number it prints comes
+how a model is pre-trained. Each guide reads in 10 to 20 minutes, and every number it prints comes
 from code you can run yourself.
 
 **Who it's for:** a strong software engineer who has used LLM APIs but never trained a model.
@@ -29,8 +29,14 @@ along the way, and each guide builds on the ones before it.
 | 5 | [The transformer: blocks, stacks and a model that works](https://www.vinaygautam.com/blog/how-llms-work/05-transformer) | [05-transformer.ipynb](code/notebooks/05-transformer.ipynb) |
 | 6 | [Next-token prediction: from probabilities to text](https://www.vinaygautam.com/blog/how-llms-work/06-next-token) | [06-next-token.ipynb](code/notebooks/06-next-token.ipynb) |
 
-**Part 2: Lifecycle** (pre-training, fine-tuning, alignment, inference, tool use and agents,
-retrieval-augmented generation) is coming in v0.2.
+**Part 2: Lifecycle**
+
+| # | Guide | Notebook |
+|---|---|---|
+| 7 | [Pre-training: learning from a mountain of text](https://drvgautam.github.io/primer-on-aiengineering/pretraining/) | [07-pretraining.ipynb](code/notebooks/07-pretraining.ipynb) |
+
+Coming next: fine-tuning, alignment, inference and serving, tool use and agents, and
+retrieval-augmented generation (guides 8 to 12).
 
 ## Run the code
 
@@ -52,6 +58,12 @@ for details.
 The notebooks are generated from the guide sources, never edited by hand. CI runs every notebook
 from top to bottom and checks that each cell prints what the guide shows: the same words, and
 numbers within a relative tolerance of 0.1%. If a cell ever disagrees with its guide, the build fails.
+
+One exception: training runs aren't bit-for-bit repeatable across processors and thread counts,
+even with a fixed seed. Cells whose output comes from a live training run (in Guides 5 and 7) are
+tagged `varies` and must run without error, but may print slightly different last digits; the
+guide says so where it happens. Anything that needs a trained model afterwards loads it from
+`code/guides/checkpoints/`, so those outputs match exactly on every machine.
 
 ## Build it yourself
 

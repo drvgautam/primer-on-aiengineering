@@ -1,0 +1,364 @@
+---
+title: "Pre-training: learning from a mountain of text"
+guide: 7
+slug: pretraining
+part: Lifecycle
+---
+import { BatchFigure, CurveFigure, ScaleFigure } from "../components/figures/pretraining"
+
+# Pre-training: learning from a mountain of text
+
+Guides 1 to 6 explained what a large language model (LLM) computes once its parameters are set. This guide is about how they get set. By the end you'll be able to say what pre-training optimizes and what it produces, describe how a pile of text becomes training batches, explain what the Adam optimizer changes about gradient descent, use held-out text to tell a model that learned from one that memorized, and estimate what a training run costs with one multiplication.
+
+## What pre-training is
+
+Recall from Guide 6 that next-token training, teacher forcing, means one thing: at every position of a text, raise the probability of the token that actually came next, by lowering the average cross-entropy over all positions. **Pre-training** is that objective run over a very large, general collection of text, starting from random parameters. What comes out is a **base model** (or pre-trained model): a model that has learned to continue text, and nothing more specific than that. Later guides train it further; this one is about the first, largest and most expensive step.
+
+Guide 5's toy transformer already did a small version of this. Recall that it trained on one 128-character paragraph and reached a loss of 0.001 at the last positions of each window, because it had memorized the paragraph and could reproduce it word for word. That's the problem this guide starts from. A model that memorizes its training text looks perfect on that text and tells you nothing about any other. So two questions run through everything below: how do you know a model has *learned* something, and what does it take to do that at the scale of a real LLM?
+
+## A world bigger than one paragraph
+
+One paragraph is too small to learn a pattern from, so this guide builds a bigger world with the same flavor. Every sentence has the form "the *noun* *verb* *preposition* the *place*", and sentences are joined by " and ":
+
+- nouns: cat, dog, rat, fox, owl, hen (6);
+- verbs: sat, ran, hid, lay (4);
+- prepositions: on, by, near, under (4);
+- places: mat, log, rug, bed, pot, hut (6).
+
+That's 6 × 4 × 4 × 6 = 576 possible sentences. The code holds back one fifth of them, 115 sentence types chosen at random, which never appear in training. They form the **held-out set**, also called the **validation set**: text kept back so you can test the model on something it has never seen. The code in this guide uses PyTorch 2.14.1, pinned in the series `requirements.txt` as of October 2026, and its blocks run in order and share variables.
+
+```python fresh
+import random
+nouns  = ["cat", "dog", "rat", "fox", "owl", "hen"]
+verbs  = ["sat", "ran", "hid", "lay"]
+preps  = ["on", "by", "near", "under"]
+places = ["mat", "log", "rug", "bed", "pot", "hut"]
+types = [f"the {a} {b} {c} the {d}" for a in nouns for b in verbs for c in preps for d in places]
+random.Random(0).shuffle(types)
+val_types, train_types = types[:115], types[115:]          # one fifth held out
+
+def corpus(types, n, seed):                                # n random sentences joined by " and "
+    rng = random.Random(seed)
+    return " and ".join(rng.choice(types) for _ in range(n))
+
+print(len(types), "types:", len(train_types), "for training,", len(val_types), "held out")
+print(corpus(train_types, 3, seed=1))
+```
+
+```output
+576 types: 461 for training, 115 held out
+the owl ran on the rug and the hen ran on the hut and the fox ran by the hut
+```
+
+The same code is saved as `guides/world.py` for later guides to import.
+
+How low could any model's loss go on this text? Recall from Guide 6 that a loss computed with the natural log is measured in nats. Each sentence is four independent, uniform choices, and an even guess among 6 options costs $-\ln(1/6) = \ln 6$ nats. So picking one sentence carries $\ln 6 + \ln 4 + \ln 4 + \ln 6$ nats of uncertainty, and everything else ("the", the spaces, " and ") is fixed. Spread that over the average sentence's length and you get the lowest loss per character:
+
+```python
+import math
+nats = sum(math.log(len(words)) for words in (nouns, verbs, preps, places))   # uncertainty per sentence
+chars = sum(len(t) for t in types) / len(types) + len(" and ")                # average characters per sentence
+print(f"{nats:.3f} nats per sentence, {chars:.2f} characters, floor {nats / chars:.3f} nats per character")
+```
+
+```output
+6.356 nats per sentence, 28.25 characters, floor 0.225 nats per character
+```
+
+A model that knows the rules and treats all 576 sentences as equally likely can't average below 0.225 nats per character. Call this the **rules' floor**. Guide 5's floor was the best possible loss on one fixed text, which memorizing reaches; the rules' floor counts only what the sentence pattern allows, so a model can beat it on its own training text, but only by remembering which sentences that text contains, which is memorizing.
+
+Later guides reuse this world, so its simplifications carry forward: every word is drawn independently and uniformly, and every sentence is grammatical. In real text a handful of words like "the" make up a large share of everything written, a pronoun can point back several paragraphs, and typos turn up everywhere.
+
+Real pre-training corpora are web pages, books, code and other text, tokenized once with the model's tokenizer (Guide 2). GPT-2 was trained on WebText, about 40 GB of text from just over 8 million web pages ([Radford et al., 2019](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf)). Raw web text is full of spam and copies, so most of the work of preparing it is filtering out low-quality text, removing duplicates and keeping benchmark test sets out of the training data. Models trained on deduplicated text repeat memorized passages about ten times less often and reach the same accuracy in fewer steps ([Lee et al., 2022](https://arxiv.org/abs/2107.06499)). For GPT-2 and GPT-3, the result was a fixed snapshot of filtered text, gathered once.
+
+## From a token stream to batches
+
+The corpus becomes one long stream of token IDs; in the toy, each character is a token. Recall from Guide 5 that a window was 16 consecutive characters used as one training sequence; in general, training examples are windows as long as the context. Recall from Guide 6 that one window gives a prediction at every position, each from the true tokens before it, with the targets being the same window shifted one step later. The **stride** is how far the window moves between one example and the next. With stride 1, windows overlap almost entirely; with a stride equal to the window length, they sit back to back.
+
+The toy's context is 32 characters. A corpus of 4,000 training sentences gives these counts:
+
+```python
+import sys
+sys.path.insert(0, "guides")                   # run from the repository root
+import torch
+import torch.nn.functional as F
+from tinygpt import TinyGPT, vocab             # Guide 5's model and its 27 characters
+
+def encode(text):
+    return torch.tensor([vocab.index(c) for c in text])
+
+def windows(ids, ctx, stride):                 # every ctx-long slice, one starting each stride characters
+    inputs = ids[:-1].unfold(0, ctx, stride)   # (number of windows) × n
+    targets = ids[1:].unfold(0, ctx, stride)   # the same windows, one step later
+    return inputs, targets
+
+train_text = corpus(train_types, 4000, seed=1)
+train_ids = encode(train_text)
+print(len(train_ids), "characters")
+for stride in (1, 32):
+    print("stride", stride, len(windows(train_ids, 32, stride)[0]), "windows")
+```
+
+```output
+112986 characters
+stride 1 112954 windows
+stride 32 3530 windows
+```
+
+Recall from Guide 5 that a batch stacks several sequences on a leading axis of size $B$; here it is the $B$ windows one step processes in one forward pass, so the model's input has shape $B \times n$. The toy uses $B = 32$ windows of 32 characters, 1,024 predictions per step. One pass over all the training data is an **epoch**. Large models see most of their data about once: GPT-3 went through 0.44 epochs of its biggest source, filtered web text, while repeating some smaller, higher-quality sources more often (WebText2 2.9 epochs, Books1 1.9, Wikipedia 3.4; [Brown et al., 2020](https://arxiv.org/abs/2005.14165), Table 2.2). Text seen once is hard to memorize, which is one reason a large model's training loss stays close to its validation loss. The toy, which sees its corpus about nine times, shows the related effect: enough data closes the gap.
+
+<figure>
+<BatchFigure />
+<figcaption>Figure 1. The start of the training stream, cut into windows of 4 characters. Stride 1 starts a window at every character, so neighbors overlap in 3; stride 4 lays them back to back. A batch stacks windows as rows (here the four from stride 4; training picks them at random).</figcaption>
+</figure>
+
+Why not use the whole dataset at every step, as every guide so far has done? Guide 5's toy computed its gradient over all 112 of its windows each time, which was fine for 128 characters and is hopeless for a corpus of billions of tokens. The fix is to estimate the gradient from a random batch. The average gradient over 32 random windows is a noisy estimate of the average over all of them, but it costs a tiny fraction as much, and many cheap, slightly wrong steps get further than a few exact ones. Training this way is **minibatch gradient descent**.
+
+Here's the training loop for the rest of the guide. Each step draws $B$ random windows at stride 1, so any starting character can be picked, computes their loss, and updates the parameters. Every so often it measures the loss on two fixed sets of windows at stride 32: the training text, and 300 sentences from the held-out types. Back-to-back windows count each character once and keep the check cheap, while training at stride 1 gets every possible starting point. The model is Guide 5's, with its position table stretched from 16 to 32 rows. Stretching it adds 16 rows of 32 numbers ($d_{\text{model}} = 32$), 512 parameters, to Guide 5's 27,739, for 28,251 in all. PyTorch calls minibatch gradient descent `SGD`, for stochastic gradient descent. To keep the whole guide under a minute on a laptop, every run here is 1,000 steps.
+
+```python varies
+val_inputs, val_targets = windows(encode(corpus(val_types, 300, seed=99)), 32, 32)
+
+def evaluate(model, inputs, targets):          # mean loss per character over all the windows
+    with torch.no_grad():
+        logits = model(inputs)                 # windows × n × |V|
+        return F.cross_entropy(logits.reshape(-1, len(vocab)), targets.reshape(-1)).item()
+
+def train(ids, method="adam", lr=0.003, steps=1000, B=32, seed=0, report=(500, 1000)):
+    torch.manual_seed(seed)
+    model = TinyGPT(n_max=32)                  # Guide 5's model, 32-character context
+    inputs, targets = windows(ids, 32, 1)
+    train_check = windows(ids, 32, 32)
+    params = model.parameters()
+    optimizer = torch.optim.Adam(params, lr=lr) if method == "adam" else torch.optim.SGD(params, lr=lr)
+    generator = torch.Generator().manual_seed(seed)
+    curve = {}
+    for step in range(steps + 1):
+        if step in report:
+            curve[step] = (evaluate(model, *train_check), evaluate(model, val_inputs, val_targets))
+        if step == steps:
+            return model, curve
+        batch = torch.randint(len(inputs), (B,), generator=generator)     # B random windows
+        logits = model(inputs[batch])                                     # B × n × |V|
+        loss = F.cross_entropy(logits.reshape(-1, len(vocab)), targets[batch].reshape(-1))
+        optimizer.zero_grad(); loss.backward(); optimizer.step()     # clear old gradients (PyTorch adds to them), compute, update
+
+model, curve = train(train_ids, report=(0, 50, 100, 250, 500, 750, 1000))
+print(sum(param.numel() for param in model.parameters()), "parameters")
+print(" step  training  validation")
+for step, (train_loss, val_loss) in curve.items():
+    print(f"{step:5}  {train_loss:8.3f}  {val_loss:10.3f}")
+```
+
+```output
+28251 parameters
+ step  training  validation
+    0     3.567       3.582
+   50     1.329       1.341
+  100     0.936       0.935
+  250     0.405       0.400
+  500     0.301       0.301
+  750     0.287       0.291
+ 1000     0.281       0.287
+```
+
+The first column of losses is on the training text; the second is on held-out sentences the model has never seen. Both fall together, from about 3.6 to 0.29, close to the 0.225 rules' floor. Recall from Guide 5 that training isn't bit-for-bit repeatable across machines, even with a fixed seed. On a different processor, or with a different number of threads, your last digits may differ slightly from these, and from the two comparisons below.
+
+## Better steps: Adam
+
+Plain gradient descent, from Guide 1, moves every parameter by the same multiple $\eta$ of its gradient. One learning rate has to suit every parameter, though some have large, steady gradients and others small or noisy ones. Guide 5 asked you to treat Adam as plain gradient descent; here is what it changes. **Adam** ([Kingma & Ba, 2015](https://arxiv.org/abs/1412.6980)) keeps two running averages for each parameter: one of its recent gradients and one of their squares. It divides the first by the square root of the second. That square root is the gradient's typical size, so for a steady gradient the ratio is about ±1, and each step's size is set per parameter. A parameter whose gradient points the same way step after step moves at about the full learning rate, however small that gradient is. A parameter whose gradient flips sign from step to step averages toward zero and barely moves.
+
+The comparison below trains the same model on the same 4,000 sentences, with the same batches, using minibatch gradient descent (`SGD`) at two learning rates and Adam at 0.003, reusing the Adam run from above. The rates aren't comparable: gradient descent moves $\eta$ times the gradient, and these gradients are small, while Adam moves about $\eta$ per step whatever the gradient's size, so its useful rates are much smaller.
+
+```python varies
+print("optimizer         learning rate  validation at 500  at 1,000")
+for lr in (0.3, 1.0):
+    _, c = train(train_ids, method="sgd", lr=lr)
+    print(f"SGD (minibatch)   {lr:13}  {c[500][1]:17.3f}  {c[1000][1]:8.3f}")
+print(f"Adam              {0.003:13}  {curve[500][1]:17.3f}  {curve[1000][1]:8.3f}")
+```
+
+```output
+optimizer         learning rate  validation at 500  at 1,000
+SGD (minibatch)             0.3              0.827     0.369
+SGD (minibatch)             1.0              0.324       nan
+Adam                      0.003              0.301     0.287
+```
+
+At 1.0, minibatch gradient descent starts nearly as fast as Adam and then blows up: `nan` ("not a number") means the values overflowed. At 0.3 it's stable but still well behind at step 1,000. So gradient descent leaves you guessing: the faster of the two rates diverged, and the slower one finished well behind. Adam got close to its final loss by step 500 with the learning rate Guide 5 already used.
+
+As of October 2026, most published large training runs use an Adam-family optimizer, usually AdamW ([Loshchilov & Hutter, 2019](https://arxiv.org/abs/1711.05101)). AdamW adds **weight decay**, which shrinks most weights slightly toward zero at each step. It was originally used to stop a model fitting its training text too closely; in pre-training that sees most text once, its benefit seems to come more from steadier training ([Andriushchenko et al., 2023](https://arxiv.org/abs/2310.04415)). AdamW applies the decay separately; folded into the gradient, it would pass through Adam's per-parameter scaling and shrink some weights much less than others.
+
+<details>
+<summary>Adam's update, written out</summary>
+
+For each parameter, at every step $t$, Adam updates two averages of its gradient $g$. The first, $m$, moves 10% of the way toward the new gradient each step; the second, $v$, moves 0.1% of the way toward its square, $g^2$ (those fractions, 0.9 and 0.999 kept, are PyTorch's defaults). Both start at zero, which makes them too small for the first few steps, so Adam divides them by $1 - 0.9^t$ and $1 - 0.999^t$, giving corrected versions $\hat{m}$ and $\hat{v}$. The update is then
+
+$$
+\theta \leftarrow \theta - \eta \, \frac{\hat{m}}{\sqrt{\hat{v}} + \epsilon}
+$$
+
+with $\theta$ the parameter (the update is applied to each parameter separately), $\eta$ the learning rate (0.003 in the toy) and $\epsilon$ a tiny constant ($10^{-8}$) that stops a division by zero, the same role it plays in Guide 5's layer normalization. If $g$ is the same every step, $\hat{m}/\sqrt{\hat{v}}$ has size 1 whatever the size of $g$ (its sign is the gradient's), so the step is $\eta$. If $g$ swings between signs, $\hat{m}$ shrinks while $\hat{v}$ doesn't, so the step shrinks. Adam stores two extra numbers per parameter, which matters for memory later.
+
+</details>
+
+Large runs also change the learning rate over time, following a **learning-rate schedule**. They start with **warm-up**, raising it gradually from near zero over the first steps. Recall from Guide 5 where layer normalization sits: the original transformer applied it after each addition, an arrangement called post-LN that needs warm-up, and GPT-2 applies it before each part, called pre-LN, which can train without it ([Xiong et al., 2020](https://arxiv.org/abs/2002.04745)). Large pre-LN runs use warm-up anyway. One common explanation: after only a few steps, Adam's average of squared gradients is a rough guess, so the steps it scales can be far too large ([Liu et al., 2020](https://arxiv.org/abs/1908.03265)). Then they lower the rate over the rest of training, so that late steps make small corrections instead of bouncing around a good setting. GPT-3 warmed up over its first 375 million tokens and then lowered its learning rate along a cosine curve to a tenth of its peak ([Brown et al., 2020](https://arxiv.org/abs/2005.14165)). The toy keeps a constant rate and stops at 1,000 steps with its losses still falling slowly.
+
+## Learning or memorizing?
+
+The tool is the validation set. Training loss can be driven down by memorizing the training text; loss on text the model has never seen can't. So train the same 28,251-parameter model for the same 1,000 Adam steps on just 10 sentences, and compare with the 4,000-sentence run:
+
+```python varies
+print("sentences  training  validation")
+_, c = train(encode(corpus(train_types, 10, seed=1)))
+print(f"{10:9,}  {c[1000][0]:8.3f}  {c[1000][1]:10.3f}")
+print(f"{4000:9,}  {curve[1000][0]:8.3f}  {curve[1000][1]:10.3f}")
+```
+
+```output
+sentences  training  validation
+       10     0.112       1.656
+    4,000     0.281       0.287
+```
+
+With 10 sentences the training loss is far below the 0.225 rules' floor, which only memorization can do. A model that knows the ten sentences by heart only has to guess which of them comes next, about $\ln 10 \approx 2.3$ nats per sentence, or $2.3 / 28.25 \approx 0.08$ per character, and the training loss is not far above that. On held-out sentences it does badly. With 4,000 sentences, the two losses are almost equal. The model now does as well on sentences it has never seen as on ones it has: it has learned the four slots and what can fill each. Doing much better on the training text than on held-out text is **overfitting**, and a large gap between the two losses is the sign of it. Here 400 times more data brought the validation loss from 1.656 to 0.287.
+
+Why 0.287 and not 0.225? A window starts at a random character, so its first few positions can't tell where in a sentence they are. And 1,000 steps at a constant learning rate don't finish the job. Guide 1 judged its toy network by its loss on the same 127 examples it trained on, and Guide 5 showed how that can mislead: a near-zero loss that was only memory. Validation loss is the measurement that replaces it.
+
+<figure>
+<CurveFigure />
+<figcaption>Figure 2. Training and validation loss during the 4,000-sentence run, from the training block's output, with the loss on a log scale. The two lines lie almost on top of each other the whole way, and both flatten a little above the 0.225 rules' floor.</figcaption>
+</figure>
+
+The validation curve in Figure 2 starts at 3.582, a little above $\ln 27 \approx 3.30$, the loss of an even guess over 27 characters. That's because random starting parameters make the first guesses slightly uneven, and an uneven guess that knows nothing about the text usually costs more than an even one. Most of the drop happens in the first 250 steps.
+
+The most direct test is to let the model write. This samples 3,000 characters from the 4,000-sentence model with Guide 6's sampling at temperature 1, splits the text at " and ", and checks each complete sentence. So that every reader gets the same samples, it first loads that model as saved from the run above, in `guides/checkpoints/pretraining.pt`, as Guide 6 did with Guide 5's toy:
+
+```python
+model = TinyGPT(n_max=32)                      # the 4,000-sentence run above, as saved
+model.load_state_dict(torch.load("guides/checkpoints/pretraining.pt"))
+
+def sample(model, n, seed):                    # Guide 6's loop: sample, append, repeat
+    generator = torch.Generator().manual_seed(seed)
+    ids = encode("the ")
+    with torch.no_grad():
+        while len(ids) < n:
+            p = torch.softmax(model(ids[None, -32:])[0, -1], dim=-1)    # last 32 characters in, last position out
+            ids = torch.cat([ids, torch.multinomial(p, 1, generator=generator)])
+    return "".join(vocab[i] for i in ids)
+
+sentences = sample(model, 3000, seed=0).split(" and ")[:-1]   # drop the unfinished last one
+seen = set(train_text.split(" and "))
+good = [s for s in sentences if s in types]
+new = [s for s in good if s not in seen]
+print(len(sentences), "sentences,", len(good), "grammatical,", len(new), "never in training",
+      f"({len(set(new))} different),", sum(s in val_types for s in new), "of them held-out types")
+print("new:", new[:3])
+print("misses:", [s for s in sentences if s not in types][:4])
+```
+
+```output
+102 sentences, 85 grammatical, 13 never in training (13 different), 13 of them held-out types
+new: ['the fox lay on the bed', 'the dog ran by the bed', 'the hen hid on the bed']
+misses: ['the log', 'the  lay on the mat', 'the owl hid near the sog', 'the owl sat neat the pot']
+```
+
+Most of what it writes follows the pattern; the misses are misspellings, fragments and sentences run together. All 13 sentences it wrote that never appeared in training are held-out types, combinations it built from parts it had seen in other sentences, which memorization can't do.
+
+## Scale: parameters, data and compute
+
+Training compute is about
+
+$$
+C \approx 6ND
+$$
+
+floating-point operations, where $N$ is the number of parameters (Kaplan et al. count those outside the embedding tables; the toy's figure below uses all 28,251, a slight overcount), $D$ the number of training tokens, and $C$ the total compute ([Kaplan et al., 2020](https://arxiv.org/abs/2001.08361)). The rule counts only the parameters' multiplies and adds. Attention's scores add a cost that grows with context length; it's small at a thousand tokens, and the accordion below shows where it comes from. The toy saw 1,000 steps of 1,024 characters, and GPT-3 had 175 billion parameters trained on 300 billion tokens (Brown et al., 2020):
+
+```python
+for name, N, D in [("toy", 28_251, 1000 * 32 * 32), ("GPT-3", 175e9, 300e9)]:
+    print(f"{name:6} C = 6ND = {6 * N * D:.2e}")
+C = 6 * 175e9 * 300e9
+print(f"at 10^15 operations per second: {C / 1e15 / 3.15e7:.1f} years on one device, {C / 1e18 / 86400:.1f} days on 1,000")
+for name, N, D in [("GPT-3", 175e9, 300e9), ("Chinchilla", 70e9, 1.4e12), ("LLaMA-7B", 7e9, 1e12)]:
+    print(f"{name:10} {D / N:6.1f} tokens per parameter")
+```
+
+```output
+toy    C = 6ND = 1.74e+11
+GPT-3  C = 6ND = 3.15e+23
+at 10^15 operations per second: 10.0 years on one device, 3.6 days on 1,000
+GPT-3         1.7 tokens per parameter
+Chinchilla   20.0 tokens per parameter
+LLaMA-7B    142.9 tokens per parameter
+```
+
+The GPT-3 paper reports $3.14 \times 10^{23}$ operations for that model, matching the estimate. On a hypothetical accelerator, a GPU or similar chip (a device, below), that sustains $10^{15}$ operations a second, that's about ten years; on a thousand of them, a few days.
+
+<details>
+<summary>Where the 6 comes from</summary>
+
+In the forward pass, each parameter takes part in about one multiply and one add per token, so about $2N$ operations per token. The backward pass needs about twice that, because each layer computes two sets of gradients: one for its inputs, to pass further back, and one for its weights. That's about $4N$, and $2N + 4N = 6N$ per token, times $D$ tokens. The rule leaves out attention's scores, whose cost grows with the context length: recall from Guide 4 that they grow with $n^2$. For the context lengths in Kaplan et al. (2020), about a thousand tokens, that share is small, so $6ND$ is a good estimate, not an exact count; the share grows as contexts get longer.
+
+</details>
+
+The bigger result is that loss is predictable. As $N$, $D$ and $C$ grow, the loss on held-out text falls smoothly, close to a straight line on log–log axes, a power law, over many orders of magnitude. These regularities are called **scaling laws** (Kaplan et al., 2020). They're why a lab can train a series of small models and forecast the held-out loss a much larger run will reach before paying for it. What they forecast is loss on that kind of text, not skill at a given task: recall from Guide 6 that lower perplexity on one kind of text says little about a task.
+
+For a fixed budget $C$, how should you split it between a bigger model and more data? Hoffmann et al. (2022) trained over 400 models to find out, and concluded that both should grow together, at roughly 20 training tokens per parameter ([Hoffmann et al., 2022](https://arxiv.org/abs/2203.15556)). Training that hits this ratio for its budget is called **compute-optimal** (or Chinchilla-optimal). Their Chinchilla model, 70 billion parameters trained on 1.4 trillion tokens, beat larger models trained with similar compute. GPT-3, at about 1.7 tokens per parameter, was far short of the ratio.
+
+<figure>
+<ScaleFigure />
+<figcaption>Figure 3. Training tokens against parameters on log–log axes. The line is 20 tokens per parameter. GPT-3 (2020) sits well below it, Chinchilla (2022) on it, and LLaMA-7B (2023) far above it.</figcaption>
+</figure>
+
+The comparison that settled it: Chinchilla used the same compute budget as DeepMind's 280-billion-parameter Gopher, with a quarter of the parameters and almost five times the data, and beat it on most of the benchmarks tested (Hoffmann et al., 2022). For a fixed budget, more parameters alone made the worse model.
+
+The 20-to-1 ratio optimizes the cost of training, not the cost of using the model afterwards. A model that will answer millions of requests is cheaper to run if it's small, so it's often worth training it far past the ratio. LLaMA-7B, released in 2023, was trained on 1 trillion tokens, about 143 per parameter ([Touvron et al., 2023](https://arxiv.org/abs/2302.13971)), and Llama 3's 8-billion-parameter model in 2024 on about 15 trillion, nearly 1,900 per parameter ([Llama Team, 2024](https://arxiv.org/abs/2407.21783)).
+
+## Making it fit
+
+Memory is the other wall. Large runs use **mixed precision**: most of the arithmetic in 16-bit numbers, while a 32-bit copy of the weights receives the updates, because many updates are too small to register in 16 bits ([Micikevicius et al., 2018](https://arxiv.org/abs/1710.03740)). That speeds up the hardware and roughly halves the memory for the intermediate values the backward pass keeps. Those are each layer's forward-pass outputs, which the chain rule needs again on the way back, and they grow with batch size and context length.
+
+Leaving those aside, mixed precision with Adam needs about 16 bytes per parameter. The 16-bit weights and gradients take 2 each, and the 32-bit copy plus Adam's two averages take 12 ([Rajbhandari et al., 2020](https://arxiv.org/abs/1910.02054)). That's the 2018–2020 recipe, and some runs since 2024 compute in 8-bit numbers instead ([DeepSeek-AI, 2024](https://arxiv.org/abs/2412.19437)). For 175 billion parameters, 16 bytes each is 16 × 175 × 10⁹ = 2.8 × 10¹² bytes, about 2.8 TB, far more than any single device holds. So training is split across many devices, and large runs combine three ways of doing it:
+
+- **data parallelism**: each device holds a copy of the model and trains on different batches, and their gradients are averaged before every update, which buys speed, not memory;
+- **model parallelism**: the model itself is split, its blocks or its matrices spread over several devices, so each holds only part of it;
+- **sharded optimizer state** (ZeRO, the Zero Redundancy Optimizer, Rajbhandari et al., 2020): each device stores only its share of Adam's averages and the 32-bit weights, instead of a full copy.
+
+Large runs spread across thousands of devices: Llama 3's largest model, in 2024, trained on up to 16,000 at once ([Llama Team, 2024](https://arxiv.org/abs/2407.21783)). At that scale some devices fail along the way, so runs save **checkpoints**, copies of the parameters and optimizer state, regularly, and resume from the last one.
+
+## What comes out: a base model
+
+A base model continues text. Here is GPT-2 small, the series' model, continuing two prompts with Guide 6's greedy rule. Its weights are a 548 MB download, so the block is shown but not run here; `series/running-example.py` pins the revision and checks the file's hash.
+
+```python norun
+import runpy
+script = runpy.run_path("series/running-example.py")         # needs the 548 MB weights file
+for prompt in ["The capital of France is", "Q: What is the capital of France?\nA:"]:
+    print(repr(script["greedy"](prompt, 25)))                 # 25 more tokens, most probable each time
+```
+
+Its output, from a run of that script:
+
+```output
+'The capital of France is the capital of the French Republic, and the capital of the French Republic is the capital of the French Republic.\n\nThe'
+'Q: What is the capital of France?\nA: The capital of France is Paris.\nQ: What is the capital of France?\nA: The capital of France is'
+```
+
+The first prompt never reaches "Paris" and falls into the greedy loop from Guide 6. The second gets the answer, because a page that sets out "Q:" and "A:" usually answers, and then carries on writing the next question, because such pages have more than one. Pre-training didn't teach it to answer questions. It taught it how text goes, and some text is questions followed by answers. Turning a continuer into an assistant that answers and stops takes further training, which Guide 8 covers.
+
+Two more properties follow from the objective. A base model can repeat training text verbatim: researchers extracted hundreds of memorized passages from GPT-2, including names and contact details ([Carlini et al., 2021](https://arxiv.org/abs/2012.07805)). Guide 5's toy was the extreme case, a model that was nothing but memory. And what it knows stops at its data. Anything that wasn't in the corpus, or happened after it was gathered, it can't know, and whatever it does know is spread through its parameters, with no record of where it came from. Guide 12 shows how to hand the model text it never saw, at the moment it answers.
+
+Back to the running example, "The cat sat on the". Recall from Guide 6 that GPT-2 small gives " mat" a probability of only about 0.004 there. As a loss, that's
+
+```python norun
+print(script["next_token_loss"](" mat"))                   # (loss in nats, perplexity)
+```
+
+```output
+(5.511, 247.3)
+```
+
+5.511 nats, the cross-entropy pre-training would charge if the text went on " mat". Its perplexity, $e^{5.511} \approx 247$, means GPT-2 was as unsure of " mat" as if it were picking evenly among 247 tokens. On the web, a cat sits on many things, and the base model spreads its probability across them. The 0.004 is the model's estimate, learned from its training text; nobody counted how often web cats sit on mats.
+
+Pre-training repeats one step tens or hundreds of thousands of times: show the model a batch of text, measure how badly it predicted each next token, and nudge every parameter with Adam. GPT-3 took roughly 300 × 10⁹ / 3.2 × 10⁶ ≈ 94,000 steps, most at its full batch of 3.2 million tokens (Brown et al., 2020). Held-out text tells you whether it's learning or memorizing, and $6ND$ tells you what it will cost. What you get is a model that continues text well and does nothing else. Guide 8 is about making it useful.

@@ -25,13 +25,34 @@ function GuideCard({ g }) {
   )
 }
 
+function UpcomingCard({ u }) {
+  const [short, tagline] = (u.title ?? u.slug).split(/:\s+/, 2)
+  return (
+    <li className="guide-card upcoming">
+      <div className="guide-card-link">
+        <span className="guide-number">{String(u.guide).padStart(2, "0")}</span>
+        <h3>
+          {short}
+          {tagline ? <span className="guide-tagline">{tagline}</span> : null}
+        </h3>
+        <p className="guide-outcome">Coming soon</p>
+      </div>
+    </li>
+  )
+}
+
 export default function Home() {
   const guides = allGuides()
   const sample = sampleBlock("attention")
   const totalMinutes = guides.reduce((n, g) => n + g.minutes, 0)
-  const parts = release.parts.map((p) => ({ ...p, guides: guides.filter((g) => g.part === p.name) }))
+  // A part can be partly released: its unreleased guides show as "coming" cards after the rest.
+  const parts = release.parts.map((p) => ({
+    ...p,
+    guides: guides.filter((g) => g.part === p.name),
+    upcoming: (release.unreleased ?? []).filter((u) => u.part === p.name),
+  }))
   const upcoming = []
-  for (const u of release.unreleased ?? []) {
+  for (const u of (release.unreleased ?? []).filter((u) => !parts.some((p) => p.name === u.part))) {
     if (upcoming.at(-1)?.[0] !== u.part) upcoming.push([u.part ?? "", []])
     upcoming.at(-1)[1].push(u)
   }
@@ -121,9 +142,13 @@ export default function Home() {
               <span className="part-label">Part {i + 1}</span>
               <h3>{p.name}</h3>
               {p.blog ? <a href={p.blog} className="part-link">Also on the blog</a> : null}
+              {!p.blog && p.upcoming.length ? (
+                <span className="soon">{p.guides.length} of {p.guides.length + p.upcoming.length} out</span>
+              ) : null}
             </div>
             <ol className="guide-grid">
               {p.guides.map((g) => <GuideCard key={g.slug} g={g} />)}
+              {p.upcoming.map((u) => <UpcomingCard key={u.slug} u={u} />)}
             </ol>
           </div>
         ))}
@@ -135,20 +160,7 @@ export default function Home() {
               <span className="soon">Coming in the next release</span>
             </div>
             <ol className="guide-grid">
-              {items.map((u) => {
-                const [short, tagline] = (u.title ?? u.slug).split(/:\s+/, 2)
-                return (
-                  <li key={u.slug} className="guide-card upcoming">
-                    <div className="guide-card-link">
-                      <span className="guide-number">{String(u.guide).padStart(2, "0")}</span>
-                      <h3>
-                        {short}
-                        {tagline ? <span className="guide-tagline">{tagline}</span> : null}
-                      </h3>
-                    </div>
-                  </li>
-                )
-              })}
+              {items.map((u) => <UpcomingCard key={u.slug} u={u} />)}
             </ol>
           </div>
         ))}

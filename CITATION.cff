@@ -12,7 +12,7 @@ url: "https://drvgautam.github.io/primer-on-aiengineering/"
 license:
   - MIT
   - CC-BY-4.0
-version: 0.1.1
+version: 0.2.0
 keywords:
   - large language models
   - transformers

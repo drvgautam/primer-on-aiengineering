@@ -13,6 +13,7 @@ body:
         - "4. Attention"
         - "5. The transformer"
         - "6. Next-token prediction"
+        - "7. Pre-training"
         - "Other / several"
     validations:
       required: true

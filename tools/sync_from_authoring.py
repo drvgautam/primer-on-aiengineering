@@ -120,7 +120,10 @@ def main():
     code = ROOT / "code"
     src_guides = src / "guides"
     available = {p.stem for p in src_guides.glob("*.py")}
-    needed, todo = set(), [m for m in modules if m in available]
+    released_mdx = "".join((ROOT / "content" / f"{g['guide']:02d}-{g['slug']}.mdx").read_text() for g in guides)
+    # imported, or named in the prose ("the same code is saved as `guides/world.py`")
+    named_modules = set(re.findall(r"guides/(\w+)\.py", released_mdx))
+    needed, todo = set(), [m for m in modules | named_modules if m in available]
     while todo:
         m = todo.pop()
         if m not in needed:
@@ -134,7 +137,7 @@ def main():
     for m in needed:
         shutil.copy2(src_guides / f"{m}.py", code / "guides" / f"{m}.py")
     named = "".join((src_guides / f"{m}.py").read_text() for m in needed)
-    named += "".join((ROOT / "content" / f"{g['guide']:02d}-{g['slug']}.mdx").read_text() for g in guides)
+    named += released_mdx
     ckpts = [p for p in (src_guides / "checkpoints").glob("*.pt") if p.name in named]
     (code / "guides" / "checkpoints").mkdir(parents=True, exist_ok=True)
     for old in (code / "guides" / "checkpoints").glob("*.pt"):

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 (2026-10-27)
+
+Part 2, "Lifecycle", begins:
+
+- Guide 7, pre-training: a toy world of 576 sentence types with a held-out fifth, windows and
+  stride, minibatch gradient descent, Adam, overfitting and validation loss, and the $6ND$
+  compute rule
+- Notebook `07-pretraining.ipynb`, checked in CI like the others. Its three training cells are
+  tagged `varies`; the sampling cell loads the trained model from
+  `code/guides/checkpoints/pretraining.pt`, so it matches the guide on every machine
+- Guide 7 in the PDF book, with its figures, and its terms in the glossary and notation appendices
+- Site: the home page and guide sidebar group guides by part
+
 ## 0.1.1 (2026-10-26)
 
 - The PDF book opens with a designed cover page (`book/ai-engineering-primer-cover.pdf`, set by `cover` in `release.json`); the edition details move to the About page

@@ -28,5 +28,5 @@
     "pdf-lib": "^1.17.1",
     "playwright": "^1.57.0"
   },
-  "version": "0.1.1"
+  "version": "0.2.0"
 }

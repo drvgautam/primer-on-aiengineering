@@ -4,7 +4,7 @@
   "author": "Dr. Vinay Gautam",
   "repo": "drvgautam/primer-on-aiengineering",
   "branch": "main",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "cover": "book/ai-engineering-primer-cover.pdf",
   "parts": [
     {
@@ -42,15 +42,18 @@
         }
       ],
       "blog": "https://www.vinaygautam.com/blog/how-llms-work/"
+    },
+    {
+      "name": "Lifecycle",
+      "guides": [
+        {
+          "guide": 7,
+          "slug": "pretraining"
+        }
+      ]
     }
   ],
   "unreleased": [
-    {
-      "guide": 7,
-      "slug": "pretraining",
-      "title": "Pre-training: learning from a mountain of text",
-      "part": "Lifecycle"
-    },
     {
       "guide": 8,
       "slug": "finetuning",

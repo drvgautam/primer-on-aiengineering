@@ -23,6 +23,16 @@ export default async function GuidePage({ params }) {
   const [prev, next] = [guides[i - 1], guides[i + 1]]
   const total = guides.length + (release.unreleased?.length ?? 0)
   const { default: Guide } = await import(`../../content/${g.file}.mdx`)
+  // the sidebar: every guide, released or not, grouped by part in series order
+  const sidebar = []
+  const all = [
+    ...guides.map((x) => ({ ...x, released: true })),
+    ...(release.unreleased ?? []).map((u) => ({ ...u, short: (u.title ?? u.slug).split(":")[0], released: false })),
+  ].sort((a, b) => a.guide - b.guide)
+  for (const x of all) {
+    if (sidebar.at(-1)?.name !== x.part) sidebar.push({ name: x.part, items: [] })
+    sidebar.at(-1).items.push(x)
+  }
   const erratum = `${repoUrl}/issues/new?template=erratum.yml&title=${encodeURIComponent(`[Guide ${g.guide}] `)}`
 
   return (
@@ -31,25 +41,30 @@ export default async function GuidePage({ params }) {
       <div className="guide-layout">
         <aside className="series-nav" aria-label="All guides">
           <div className="sidebar-sticky">
-            <p className="sidebar-label">{g.part || "Guides"}</p>
-            <ol>
-              {guides.map((x) => (
-                <li key={x.slug}>
-                  <Link href={`/${x.slug}/`} className={x.slug === slug ? "active" : undefined} aria-current={x.slug === slug ? "page" : undefined}>
-                    <span className="series-num">{x.guide}</span>
-                    {x.short}
-                  </Link>
-                </li>
-              ))}
-              {(release.unreleased ?? []).map((u) => (
-                <li key={u.slug} className="series-soon">
-                  <span>
-                    <span className="series-num">{u.guide}</span>
-                    {(u.title ?? u.slug).split(":")[0]}
-                  </span>
-                </li>
-              ))}
-            </ol>
+            {sidebar.map((p) => (
+              <div key={p.name} className="series-part">
+                <p className="sidebar-label">{p.name || "Guides"}</p>
+                <ol>
+                  {p.items.map((x) =>
+                    x.released ? (
+                      <li key={x.slug}>
+                        <Link href={`/${x.slug}/`} className={x.slug === slug ? "active" : undefined} aria-current={x.slug === slug ? "page" : undefined}>
+                          <span className="series-num">{x.guide}</span>
+                          {x.short}
+                        </Link>
+                      </li>
+                    ) : (
+                      <li key={x.slug} className="series-soon">
+                        <span>
+                          <span className="series-num">{x.guide}</span>
+                          {x.short}
+                        </span>
+                      </li>
+                    ),
+                  )}
+                </ol>
+              </div>
+            ))}
           </div>
         </aside>
 

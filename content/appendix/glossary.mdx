@@ -1,6 +1,6 @@
 # Glossary
 
-One term per concept, as used in Guides 1–6. Declared synonyms are other names you'll meet in the literature.
+One term per concept, as used in Guides 1–7. Declared synonyms are other names you'll meet in the literature.
 
 | Term (used in the guides) | Definition | Declared synonyms | Guide |
 |---|---|---|---|
@@ -138,3 +138,22 @@ One term per concept, as used in Guides 1–6. Declared synonyms are other names
 | stop sequence (optional) | A string that ends generation when it appears in the output; named in Guide 6, used in Guide 8's toy (" and"). | stop marker, marker (Guide 8, informal) | 6 |
 | repetition penalty (optional) | A generation-time adjustment that lowers the probability of tokens already produced; named only. | penalties for repeating tokens | 6 |
 | loss floor | (see "floor (loss floor)"); Guide 1's 0.884 is the one-character loss floor, never "limit" from Guide 6 on. | floor | 1 |
+| pre-training | Next-token training over a very large, general corpus, starting from random parameters. | — | 7 |
+| base model | The model pre-training produces: it continues text and has not been trained to follow instructions. | pre-trained model | 7 |
+| validation set | Text held out of training and used only to measure loss. | held-out set | 7 |
+| stride | How far the window moves along the stream between one example and the next. | — | 7 |
+| epoch | One pass over all the training data. | — | 7 |
+| minibatch gradient descent | Gradient descent where each step uses the average gradient over a random batch. | stochastic gradient descent (SGD; `torch.optim.SGD` in code) | 7 |
+| learning-rate schedule | A plan for changing the learning rate during training, such as warm-up then cosine decay. | schedule | 7 |
+| overfitting | Doing much better on the training text than on held-out text; the gap between training and validation loss. | — | 7 |
+| scaling laws | Smooth power-law relationships between held-out loss and parameters, data and compute. | — | 7 |
+| compute-optimal | Splitting a fixed compute budget between parameters and tokens to get the lowest loss: about 20 tokens per parameter. | Chinchilla-optimal | 7 |
+| data parallelism | Each device trains a full copy of the model on different batches; gradients are averaged. | — | 7 |
+| model parallelism | The model's blocks or matrices are split across devices. | — | 7 |
+| sharded optimizer state | Each device stores only its share of the optimizer's averages and 32-bit weights (ZeRO). | ZeRO | 7 |
+| mixed precision | Doing most arithmetic in 16-bit numbers while keeping 32-bit copies where precision matters. | — | 7 |
+| checkpoint | A saved copy of the parameters and optimizer state, used to resume a run. | — | 7 |
+| rules' floor | In Guide 7's toy world, the lowest average loss a model that knows only the sentence rules can reach on new text, 0.225 nats per character; a model that memorizes its training text can go below it on that text, unlike Guide 5's floor for one fixed text, which memorizing reaches. | loss floor (of the toy world) | 7 |
+| weight decay | Shrinking most weights slightly toward zero at every step; AdamW applies it separately from Adam's scaled gradient step. | — | 7 |
+| sentence type | In Guide 7's toy world, one of the 576 distinct "the noun verb preposition the place" sentences; 115 are held out. | type | 7 |
+| accelerator | A GPU or similar chip that runs a model's arithmetic; "device" in the parallelism discussion. | device; processor (Guide 10: any chip, CPUs included, when discussing its memory and bandwidth) | 7 |
