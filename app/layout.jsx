@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google"
 import "katex/dist/katex.min.css"
 import "./globals.css"
 import { GitHub, Logo } from "../components/site/icons"
+import { SearchButton } from "../components/site/search"
 import { ThemeToggle, themeScript } from "../components/site/theme"
 import { release, repoUrl } from "../lib/guides"
 
@@ -41,6 +42,7 @@ export default function RootLayout({ children }) {
               </span>
             </Link>
             <nav className="site-nav" aria-label="Site">
+              <SearchButton />
               <Link href="/#guides" className="nav-text">Guides</Link>
               <a href={`${repoUrl}/tree/${release.branch}/code/notebooks`} className="nav-text">Notebooks</a>
               <a href={pdf} className="nav-text">PDF</a>
