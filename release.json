@@ -12,36 +12,29 @@
       "guides": [
         {
           "guide": 1,
-          "slug": "neural-networks",
-          "blog": "https://www.vinaygautam.com/blog/how-llms-work/01-neural-networks"
+          "slug": "neural-networks"
         },
         {
           "guide": 2,
-          "slug": "tokenizer",
-          "blog": "https://www.vinaygautam.com/blog/how-llms-work/02-tokenization"
+          "slug": "tokenizer"
         },
         {
           "guide": 3,
-          "slug": "embeddings",
-          "blog": "https://www.vinaygautam.com/blog/how-llms-work/03-embeddings"
+          "slug": "embeddings"
         },
         {
           "guide": 4,
-          "slug": "attention",
-          "blog": "https://www.vinaygautam.com/blog/how-llms-work/04-attention"
+          "slug": "attention"
         },
         {
           "guide": 5,
-          "slug": "transformer",
-          "blog": "https://www.vinaygautam.com/blog/how-llms-work/05-transformer"
+          "slug": "transformer"
         },
         {
           "guide": 6,
-          "slug": "next-token",
-          "blog": "https://www.vinaygautam.com/blog/how-llms-work/06-next-token"
+          "slug": "next-token"
         }
-      ],
-      "blog": "https://www.vinaygautam.com/blog/how-llms-work/"
+      ]
     },
     {
       "name": "Lifecycle",

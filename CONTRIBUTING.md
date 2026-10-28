@@ -41,7 +41,7 @@ syncs them back. You'll be credited in the changelog either way.
 
 1. In the authoring workspace, check that the guide has finished the pipeline
    (`reviews/<slug>/summary.md`).
-2. Here, move the guide from `unreleased` to its part in `release.json` and add its blog URL.
+2. Here, move the guide from `unreleased` to its part in `release.json`.
 3. Run `python3 tools/sync_from_authoring.py ../llm-guides`. It refuses to sync a guide whose
    code doesn't pass in the authoring workspace.
 4. Run `python tools/build_notebooks.py && python tools/verify_notebooks.py --write`.
