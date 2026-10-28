@@ -1,72 +1,61 @@
 import Link from "next/link"
-import { allGuides, colabUrl, notebookUrl, release, repoUrl, sampleBlock } from "../lib/guides"
-import { Arrow, Book, Clock, Download, GitHub, Notebook } from "../components/site/icons"
+import { allGuides, release, repoUrl } from "../lib/guides"
+import { Arrow, Download } from "../components/site/icons"
 
-const pdf = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/primer-on-aiengineering.pdf`
-// The book cover cropped above the rule and author line, so it reads as a thumbnail.
-const cover = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/cover.jpg`
+const base = process.env.NEXT_PUBLIC_BASE_PATH ?? ""
+const pdf = `${base}/primer-on-aiengineering.pdf`
+const cover = `${base}/cover.jpg`
 
-function GuideCard({ g }) {
-  return (
-    <li className="guide-card">
-      <Link href={`/${g.slug}/`} className="guide-card-link">
-        <span className="guide-number">{String(g.guide).padStart(2, "0")}</span>
-        <h3>
-          {g.short}
-          {g.tagline ? <span className="guide-tagline">{g.tagline}</span> : null}
-        </h3>
-        {g.outcome ? <p className="guide-outcome">{g.outcome}</p> : null}
-      </Link>
-      <div className="guide-meta">
-        <span><Clock width={14} height={14} /> {g.minutes} min</span>
-        <span>{g.sections.length} sections</span>
-        <a href={notebookUrl(g)}>Notebook</a>
-        <a href={colabUrl(g)}>Colab</a>
-      </div>
-    </li>
-  )
+// "119 min" reads better as "about 2 hours".
+function readingTime(minutes) {
+  if (minutes < 90) return `${minutes} minutes`
+  return `about ${Math.round(minutes / 30) / 2} hours`
 }
 
-function UpcomingCard({ u }) {
-  const [short, tagline] = (u.title ?? u.slug).split(/:\s+/, 2)
-  return (
-    <li className="guide-card upcoming">
-      <div className="guide-card-link">
-        <span className="guide-number">{String(u.guide).padStart(2, "0")}</span>
-        <h3>
-          {short}
-          {tagline ? <span className="guide-tagline">{tagline}</span> : null}
-        </h3>
-        <p className="guide-outcome">Coming soon</p>
-      </div>
+// One line of the contents: number, title and tagline, then the reading time (or "Soon").
+function Row({ g }) {
+  const body = (
+    <>
+      <span className="row-num">{String(g.guide).padStart(2, "0")}</span>
+      <span className="row-main">
+        <span className="row-title">{g.short}</span>
+        {g.tagline ? <span className="row-tagline">{g.tagline}</span> : null}
+      </span>
+      <span className="row-meta">{g.released ? `${g.minutes} min` : "Soon"}</span>
+    </>
+  )
+  return g.released ? (
+    <li>
+      <Link href={`/${g.slug}/`} className="row">
+        {body}
+      </Link>
+    </li>
+  ) : (
+    <li>
+      <div className="row row-soon">{body}</div>
     </li>
   )
 }
 
 export default function Home() {
   const guides = allGuides()
-  const sample = sampleBlock("attention")
-  const totalMinutes = guides.reduce((n, g) => n + g.minutes, 0)
-  // A part can be partly released: its unreleased guides show as "coming" cards after the rest.
-  const parts = release.parts.map((p) => ({
-    ...p,
-    guides: guides.filter((g) => g.part === p.name),
-    upcoming: (release.unreleased ?? []).filter((u) => u.part === p.name),
-  }))
-  const upcoming = []
-  for (const u of (release.unreleased ?? []).filter((u) => !parts.some((p) => p.name === u.part))) {
-    if (upcoming.at(-1)?.[0] !== u.part) upcoming.push([u.part ?? "", []])
-    upcoming.at(-1)[1].push(u)
+  const unreleased = (release.unreleased ?? []).map((u) => {
+    const [short, tagline = ""] = (u.title ?? u.slug).split(/:\s+/, 2)
+    return { ...u, short, tagline, released: false }
+  })
+  const total = guides.length + unreleased.length
+  const minutes = guides.reduce((n, g) => n + g.minutes, 0)
+  // Every guide, released or not, grouped by part in series order.
+  const parts = []
+  for (const g of [...guides.map((g) => ({ ...g, released: true })), ...unreleased].sort((a, b) => a.guide - b.guide)) {
+    if (parts.at(-1)?.name !== g.part) parts.push({ name: g.part, items: [] })
+    parts.at(-1).items.push(g)
   }
-  const total = guides.length + (release.unreleased?.length ?? 0)
 
   return (
     <div className="home">
-      <section className="hero">
-        <div className="hero-text">
-          <p className="eyebrow">
-            <span className="badge">v{release.version}</span> Free and open source · {guides.length} of {total} guides out
-          </p>
+      <section className="intro">
+        <div>
           <h1>
             How large language models work, <em>built up from one neuron.</em>
           </h1>
@@ -74,127 +63,36 @@ export default function Home() {
             {release.subtitle}. Written for software engineers who have used LLM APIs but never trained a model. Every
             number in the text comes from code you can run.
           </p>
-          <div className="cta-row">
+          <div className="actions">
             <Link href={`/${guides[0].slug}/`} className="button button-primary">
-              Start with Guide 1 <Arrow width={16} height={16} />
+              Start reading <Arrow width={16} height={16} />
             </Link>
             <a href={pdf} className="button">
-              <Download width={16} height={16} /> PDF
-            </a>
-            <a href={repoUrl} className="button">
-              <GitHub width={16} height={16} /> GitHub
+              <Download width={16} height={16} /> Download PDF
             </a>
           </div>
-        </div>
-        {sample ? (
-          <figure className="hero-card" aria-label={`A code block from Guide ${sample.guide.guide}`}>
-            <div className="hero-card-bar">
-              <span className="dots" aria-hidden="true"><i /><i /><i /></span>
-              <span>{sample.guide.notebook}</span>
-            </div>
-            <pre><code>{sample.code}</code></pre>
-            <pre className="hero-output"><code>{sample.output}</code></pre>
-            <figcaption>
-              Attention weights for “the cat sat on the”, from{" "}
-              <Link href={`/${sample.guide.slug}/`}>Guide {sample.guide.guide}</Link>. Each row sums to 1; the zeros
-              are the causal mask.
-            </figcaption>
-          </figure>
-        ) : null}
-      </section>
-
-      <section className="stats" aria-label="At a glance">
-        <div><strong>{guides.length}</strong><span>guides published</span></div>
-        <div><strong>{totalMinutes} min</strong><span>total reading</span></div>
-        <div><strong>{guides.length}</strong><span>runnable notebooks</span></div>
-        <div><strong>0</strong><span>hand-typed outputs</span></div>
-      </section>
-
-      <section className="book-band" aria-labelledby="book-title">
-        <a href={pdf} className="book-cover">
-          <img src={cover} alt={`Cover of ${release.title}`} width={827} height={1000} />
-        </a>
-        <div>
-          <h2 id="book-title" className="section-title">Also a book</h2>
-          <p className="section-lede">
-            Every released guide in one PDF, version {release.version}: all figure steps drawn, the “going deeper”
-            sections in full, a glossary and a notation table.
+          <p className="intro-meta">
+            {guides.length} of {total} guides out · {readingTime(minutes)} of reading ·{" "}
+            <a href={`${repoUrl}/tree/${release.branch}/code/notebooks`}>a runnable notebook for each</a>
           </p>
-          <a href={pdf} className="button button-primary">
-            <Download width={16} height={16} /> Download the PDF
-          </a>
         </div>
+        {/* A picture of the book the button downloads, so not a second link to it. */}
+        <img className="intro-cover" src={cover} alt="" width={827} height={1000} />
       </section>
 
-      <section className="ways" aria-labelledby="ways-title">
-        <h2 id="ways-title" className="section-title">Three ways to read</h2>
-        <div className="ways-grid">
-          <Link href={`/${guides[0].slug}/`} className="way">
-            <Book />
-            <h3>On the web</h3>
-            <p>Interactive figures you can step through, maths typeset, light and dark mode.</p>
-          </Link>
-          <a href={pdf} className="way">
-            <Download />
-            <h3>As a book</h3>
-            <p>Every guide in one PDF, with all figure steps drawn and the “going deeper” sections in full.</p>
-          </a>
-          <a href={`${repoUrl}/tree/${release.branch}/code/notebooks`} className="way">
-            <Notebook />
-            <h3>In a notebook</h3>
-            <p>One Jupyter notebook per guide, runnable locally or on Colab. CI checks each against the text.</p>
-          </a>
-        </div>
-      </section>
-
-      <section id="guides" className="curriculum" aria-labelledby="guides-title">
-        <h2 id="guides-title" className="section-title">The guides</h2>
-        <p className="section-lede">
-          Read them in order: each guide builds on the ones before it, and they share one running example, “The cat
-          sat on the”.
-        </p>
+      <section id="guides" className="contents" aria-label="The guides">
         {parts.map((p, i) => (
-          <div key={p.name} className="part">
-            <div className="part-head">
-              <span className="part-label">Part {i + 1}</span>
-              <h3>{p.name}</h3>
-              {p.blog ? <a href={p.blog} className="part-link">Also on the blog</a> : null}
-              {!p.blog && p.upcoming.length ? (
-                <span className="soon">{p.guides.length} of {p.guides.length + p.upcoming.length} out</span>
-              ) : null}
-            </div>
-            <ol className="guide-grid">
-              {p.guides.map((g) => <GuideCard key={g.slug} g={g} />)}
-              {p.upcoming.map((u) => <UpcomingCard key={u.slug} u={u} />)}
+          <div key={p.name} className="contents-part">
+            <h2>
+              <span>Part {i + 1}</span> {p.name}
+            </h2>
+            <ol>
+              {p.items.map((g) => (
+                <Row key={g.slug} g={g} />
+              ))}
             </ol>
           </div>
         ))}
-        {upcoming.map(([name, items], i) => (
-          <div key={name} className="part part-upcoming">
-            <div className="part-head">
-              <span className="part-label">Part {parts.length + i + 1}</span>
-              <h3>{name}</h3>
-              <span className="soon">Coming in the next release</span>
-            </div>
-            <ol className="guide-grid">
-              {items.map((u) => <UpcomingCard key={u.slug} u={u} />)}
-            </ol>
-          </div>
-        ))}
-      </section>
-
-      <section className="contribute">
-        <div>
-          <h2>Found something wrong?</h2>
-          <p>
-            Errata and “this doesn&apos;t reproduce on my machine” reports are the most useful contributions. Each one
-            is checked against the code and fixed at the source.
-          </p>
-        </div>
-        <div className="cta-row">
-          <a href={`${repoUrl}/issues/new/choose`} className="button button-primary">Open an issue</a>
-          <a href={`${repoUrl}/blob/${release.branch}/CONTRIBUTING.md`} className="button">How to contribute</a>
-        </div>
       </section>
     </div>
   )

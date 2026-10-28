@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Site: a quieter layout. The header is the logo, search, GitHub and the theme toggle. The home page is a short introduction with two actions (start reading, download the PDF) and the guides as one contents list; the stats, book, "three ways to read" and contribute sections, and the per-card notebook links, are gone. Guide pages have one notebook action, a sidebar of published guides only, and the error report and notebook links together at the end
 - Site: full-text search across every guide section (header button, ⌘K / Ctrl K or /), with typo-tolerant matching, highlighted previews and keyboard navigation; the index is built after `next build` by `tools/build-search-index.mjs`
 - Site, notebooks and book: no links to the blog; guide titles link to the site
 - Guide 7: two fixes from the Code review of the reproducibility change (the misses are "misspellings and fragments"; a shape comment says `× ctx`), and its code session may take up to 90 s, for headroom on a busy or slower machine

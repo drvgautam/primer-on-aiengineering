@@ -23,8 +23,6 @@ export const viewport = {
   ],
 }
 
-const pdf = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/primer-on-aiengineering.pdf`
-
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${sans.variable} ${serif.variable} ${mono.variable}`} suppressHydrationWarning>
@@ -43,9 +41,6 @@ export default function RootLayout({ children }) {
             </Link>
             <nav className="site-nav" aria-label="Site">
               <SearchButton />
-              <Link href="/#guides" className="nav-text">Guides</Link>
-              <a href={`${repoUrl}/tree/${release.branch}/code/notebooks`} className="nav-text">Notebooks</a>
-              <a href={pdf} className="nav-text">PDF</a>
               <a href={repoUrl} className="icon-button" aria-label="Source on GitHub" title="Source on GitHub">
                 <GitHub />
               </a>
@@ -57,13 +52,10 @@ export default function RootLayout({ children }) {
         <footer className="site-footer">
           <div className="site-footer-inner">
             <p>
-              <strong>{release.title}</strong>. Version {release.version}.
-            </p>
-            <p>
-              Text and figures <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code{" "}
-              <a href={`${repoUrl}/blob/${release.branch}/LICENSE`}>MIT</a>.{" "}
-              <a href={`${repoUrl}/blob/${release.branch}/CITATION.cff`}>Cite this work</a> ·{" "}
-              <a href={`${repoUrl}/issues/new/choose`}>Report an error</a>
+              {release.title} · v{release.version} · Text and figures{" "}
+              <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code{" "}
+              <a href={`${repoUrl}/blob/${release.branch}/LICENSE`}>MIT</a> ·{" "}
+              <a href={`${repoUrl}/blob/${release.branch}/CITATION.cff`}>Cite</a>
             </p>
           </div>
         </footer>
