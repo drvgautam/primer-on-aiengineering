@@ -18,16 +18,16 @@ along the way, and each guide builds on the ones before it.
 
 ## The guides
 
-**Part 1: How LLMs work** (also on the blog as [How LLMs work: inside the next token](https://www.vinaygautam.com/blog/how-llms-work/))
+**Part 1: How LLMs work**
 
 | # | Guide | Notebook |
 |---|---|---|
-| 1 | [Neural networks: a function with knobs](https://www.vinaygautam.com/blog/how-llms-work/01-neural-networks) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) |
-| 2 | [Tokenization: how text becomes numbers](https://www.vinaygautam.com/blog/how-llms-work/02-tokenization) | [02-tokenizer.ipynb](code/notebooks/02-tokenizer.ipynb) |
-| 3 | [Embeddings: giving every token a vector](https://www.vinaygautam.com/blog/how-llms-work/03-embeddings) | [03-embeddings.ipynb](code/notebooks/03-embeddings.ipynb) |
-| 4 | [Attention: letting tokens look at each other](https://www.vinaygautam.com/blog/how-llms-work/04-attention) | [04-attention.ipynb](code/notebooks/04-attention.ipynb) |
-| 5 | [The transformer: blocks, stacks and a model that works](https://www.vinaygautam.com/blog/how-llms-work/05-transformer) | [05-transformer.ipynb](code/notebooks/05-transformer.ipynb) |
-| 6 | [Next-token prediction: from probabilities to text](https://www.vinaygautam.com/blog/how-llms-work/06-next-token) | [06-next-token.ipynb](code/notebooks/06-next-token.ipynb) |
+| 1 | [Neural networks: a function with knobs](https://drvgautam.github.io/primer-on-aiengineering/neural-networks/) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) |
+| 2 | [Tokenization: how text becomes numbers](https://drvgautam.github.io/primer-on-aiengineering/tokenizer/) | [02-tokenizer.ipynb](code/notebooks/02-tokenizer.ipynb) |
+| 3 | [Embeddings: giving every token a vector](https://drvgautam.github.io/primer-on-aiengineering/embeddings/) | [03-embeddings.ipynb](code/notebooks/03-embeddings.ipynb) |
+| 4 | [Attention: letting tokens look at each other](https://drvgautam.github.io/primer-on-aiengineering/attention/) | [04-attention.ipynb](code/notebooks/04-attention.ipynb) |
+| 5 | [The transformer: blocks, stacks and a model that works](https://drvgautam.github.io/primer-on-aiengineering/transformer/) | [05-transformer.ipynb](code/notebooks/05-transformer.ipynb) |
+| 6 | [Next-token prediction: from probabilities to text](https://drvgautam.github.io/primer-on-aiengineering/next-token/) | [06-next-token.ipynb](code/notebooks/06-next-token.ipynb) |
 
 **Part 2: Lifecycle**
 
