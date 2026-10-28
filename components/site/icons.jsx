@@ -53,3 +53,6 @@ export const Logo = (p) => (
 export const Search = (p) => (
   <svg {...base} {...p}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
 )
+export const Menu = (p) => (
+  <svg {...base} {...p}><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+)

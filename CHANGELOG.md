@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Site: a docs layout. The guides are listed in a sidebar beside every page (a slide-in menu on phones), and the home page is a welcome page in the same frame: get started (read online, the book, the notebooks), what each part covers, and how to read the series, then a link to Guide 1
 - Site: a quieter layout. The header is the logo, search, GitHub and the theme toggle. The home page is a short introduction with two actions (start reading, download the PDF) and the guides as one contents list; the stats, book, "three ways to read" and contribute sections, and the per-card notebook links, are gone. Guide pages have one notebook action, a sidebar of published guides only, and the error report and notebook links together at the end
 - Site: full-text search across every guide section (header button, ⌘K / Ctrl K or /), with typo-tolerant matching, highlighted previews and keyboard navigation; the index is built after `next build` by `tools/build-search-index.mjs`
 - Site, notebooks and book: no links to the blog; guide titles link to the site
