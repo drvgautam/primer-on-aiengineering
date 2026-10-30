@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 (2026-10-30)
+
+- Guide 8: editorial fixes from a further Consistency review, made after Guide 7's later edits (pre-training's step count stated against Guide 7's, acronyms expanded or removed, "sub-word"); no printed number changed
+- Glossary and notation appendices updated to match (loss masking, Guide 8's code names)
+
 ## 0.3.0 (2026-10-30)
 
 Guide 8 joins Part 2, "Lifecycle":

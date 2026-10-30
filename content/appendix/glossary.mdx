@@ -161,7 +161,7 @@ One term per concept, as used in Guides 1–8. Declared synonyms are other names
 | fine-tuning | Continuing to train a pre-trained model on a small, targeted dataset to change what it does. | fine-tune (verb and noun, one run) | 8 |
 | supervised fine-tuning (SFT) | Fine-tuning on example prompts paired with the responses wanted, with the loss on the response tokens only. | SFT | 8 |
 | instruction tuning | SFT on instructions across many kinds of task; produces an instruction-tuned model. | instruction-tuned (of a model) | 8 |
-| loss masking | Counting only the response positions in the loss average; prompt positions get weight 0. | mask (in Guide 8, the loss mask; unrelated to Guide 4's causal mask and Guide 11's constraint mask, always qualified when more than one could be meant) | 8 |
+| loss masking | Counting only the positions whose target is a response token in the loss average (these start at the prompt's last position); all other positions get weight 0. | mask (in Guide 8, the loss mask; unrelated to Guide 4's causal mask and Guide 11's constraint mask, always qualified when more than one could be meant) | 8 |
 | chat format | The convention of special tokens or role markers that marks each turn of a conversation, so a model learns where its own turn begins and ends. | — | 8 |
 | role marker | A token or string in a chat format that says who is speaking. | — | 8 |
 | catastrophic forgetting | Training on new data erasing what a network learned before. | catastrophic interference (McCloskey & Cohen's name); forgetting | 8 |

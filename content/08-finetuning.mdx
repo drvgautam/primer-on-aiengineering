@@ -75,9 +75,9 @@ print(corpus_with_facts(train_types, 4, seed=1))
 the cat lives in the hut and the dog sat by the rug and the cat lay near the hut and the fox hid on the pot
 ```
 
-The model is Guide 7's with a 64-character context, so a prompt and its response fit in one window. Its position table grows from 32 rows to 64, and each row is $d_{\text{model}} = 32$ numbers, which adds 32 × 32 = 1,024 parameters to Guide 7's 28,251. The MLP in each block is 128 wide, and as in Guides 5 and 7 its tokens are characters; a real fine-tune uses its base model's subword tokens (Guide 2). Pre-training is Guide 7's loop on 4,000 sentences, 3,000 steps of 32 windows with Adam at 0.003.
+The model is Guide 7's with a 64-character context, so a prompt and its response fit in one window. Its position table grows from 32 rows to 64, and each row is $d_{\text{model}} = 32$ numbers, which adds 32 × 32 = 1,024 parameters to Guide 7's 28,251. The multilayer perceptron (MLP) in each block is 128 wide, and as in Guides 5 and 7 its tokens are characters; a real fine-tune uses its base model's sub-word tokens (Guide 2). Pre-training is Guide 7's loop on 4,000 sentences, 3,000 steps rather than that guide's 1,000, each of 32 windows with Adam at 0.003.
 
-This block imports Guide 7's helpers and that loop, as `pretrain`, from `guides/finetune.py`, which holds the rest of this guide's code too. `encode` turns text into character IDs, `windows(ids, ctx, stride)` cuts a stream into windows of length `ctx` starting every `stride` characters, and `evaluate` gives the mean loss per character. Training takes about a minute, so the block loads a checkpoint of this base model, a saved copy of its parameters as in Guide 7, that ships with the repository. Delete it and `pretrain` rebuilds the same weights on the same machine, though another CPU may differ in the last digits and the rebuild overruns this guide's one-minute budget.
+This block imports Guide 7's helpers and that loop, as `pretrain`, from `guides/finetune.py`, which holds the rest of this guide's code too. `encode` turns text into character IDs, `windows(ids, ctx, stride)` cuts a stream into windows of length `ctx` starting every `stride` characters, and `evaluate` gives the mean loss per character. Training takes about a minute, so the block loads a checkpoint of this base model, a saved copy of its parameters as in Guide 7, that ships with the repository. Delete it and `pretrain` rebuilds the same weights on the same machine, though another machine may differ in the last digits and the rebuild overruns this guide's one-minute budget.
 
 ```python
 from finetune import encode, windows, evaluate, pretrain   # Guide 7's helpers and its training loop
@@ -384,14 +384,14 @@ That's 4 × (32 + 96) + 4 × (32 + 32) + 2 × 4 × (32 + 128) = 2,048 per block,
 What it buys in practice:
 
 - **Memory.** Gradients and Adam's two averages are kept only for the small matrices; the frozen weights need only storing. For a 7-billion-parameter model, Guide 7's 16 bytes per parameter come to about 112 GB, while LoRA needs the 16-bit frozen weights, 2 bytes each, about 14 GB, plus a little for the adapters (activations aside in both).
-- **Storage and serving.** You keep one base model plus a small **adapter**, the trained $W_{\text{down}}$ and $W_{\text{up}}$, for each task, and swap adapters as needed. Or you **merge** one in (unrelated to Guide 2's BPE merges), adding $\tfrac{\alpha}{r} W_{\text{down}} W_{\text{up}}$ to $W$, which leaves a single matrix of the original size and no extra cost when the model runs (Guide 10).
+- **Storage and serving.** You keep one base model plus a small **adapter**, the trained $W_{\text{down}}$ and $W_{\text{up}}$, for each task, and swap adapters as needed. Or you **merge** one in (unrelated to Guide 2's byte-pair merges), adding $\tfrac{\alpha}{r} W_{\text{down}} W_{\text{up}}$ to $W$, which leaves a single matrix of the original size and no extra cost when the model runs (Guide 10).
 
 LoRA doesn't produce a smaller model. An adapter is meaningless without the exact base model it was trained against, so running a LoRA-tuned model still takes the full base model plus the adapter.
 
 <details>
 <summary>QLoRA: LoRA on a compressed base model</summary>
 
-Under LoRA the frozen weights still fill most of the memory. QLoRA stores the frozen base weights as 4-bit numbers while the adapters train in 16-bit precision, with gradients flowing through the compressed weights into the adapters. That made it possible to fine-tune a 65-billion-parameter model on a single GPU with 48 GB of memory ([Dettmers et al., 2023](https://arxiv.org/abs/2305.14314)). How numbers are squeezed into 4 bits, and what it costs, is quantization, which Guide 10 covers.
+Under LoRA the frozen weights still fill most of the memory. QLoRA stores the frozen base weights as 4-bit numbers while the adapters train in 16-bit precision, with gradients flowing through the compressed weights into the adapters. That let a 65-billion-parameter model be fine-tuned on a single graphics processing unit (GPU) with 48 GB of memory ([Dettmers et al., 2023](https://arxiv.org/abs/2305.14314)). How numbers are squeezed into 4 bits, and what it costs, is quantization, which Guide 10 covers.
 
 </details>
 
@@ -405,6 +405,6 @@ Fine-tuning is good for:
 
 It's poor for adding or updating facts, as the new-fact experiment showed. Retrieval does that better (Guide 12). Watch for forgetting, and for overfitting a small dataset: recall from Guide 7 that a training loss far below the validation loss is the sign, so hold out some fine-tuning examples too. Scoring by exact match worked here because every question has one right answer; open-ended responses need judgment, which Guide 9 starts on.
 
-This guide ran one fine-tune on one base model. Real pipelines chain several stages. As of October 2026, a typical published recipe is SFT, then preference tuning and reinforcement-learning stages, sometimes repeated over several rounds (Guide 9).
+Real pipelines chain several stages. As of October 2026, a typical published recipe is SFT, then preference tuning and reinforcement-learning stages, sometimes repeated over several rounds (Guide 9).
 
 SFT shows the model what a good response looks like, one example at a time, and raises the probability of exactly that response. It has no way to say that one acceptable answer is better than another, or that a fluent answer is bad. Preference tuning, Guide 9, trains on comparisons instead. Like SFT, it shapes how a model uses what it already knows; it isn't a way to add facts either.
