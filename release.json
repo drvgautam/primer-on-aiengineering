@@ -4,7 +4,7 @@
   "author": "Dr. Vinay Gautam",
   "repo": "drvgautam/primer-on-aiengineering",
   "branch": "main",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "cover": "book/ai-engineering-primer-cover.pdf",
   "parts": [
     {
@@ -42,17 +42,15 @@
         {
           "guide": 7,
           "slug": "pretraining"
+        },
+        {
+          "guide": 8,
+          "slug": "finetuning"
         }
       ]
     }
   ],
   "unreleased": [
-    {
-      "guide": 8,
-      "slug": "finetuning",
-      "title": "Fine-tuning: teaching a base model new behavior",
-      "part": "Lifecycle"
-    },
     {
       "guide": 9,
       "slug": "alignment",

@@ -34,9 +34,10 @@ along the way, and each guide builds on the ones before it.
 | # | Guide | Notebook |
 |---|---|---|
 | 7 | [Pre-training: learning from a mountain of text](https://drvgautam.github.io/primer-on-aiengineering/pretraining/) | [07-pretraining.ipynb](code/notebooks/07-pretraining.ipynb) |
+| 8 | [Fine-tuning: teaching a base model new behavior](https://drvgautam.github.io/primer-on-aiengineering/finetuning/) | [08-finetuning.ipynb](code/notebooks/08-finetuning.ipynb) |
 
-Coming next: fine-tuning, alignment, inference and serving, tool use and agents, and
-retrieval-augmented generation (guides 8 to 12).
+Coming next: alignment, inference and serving, tool use and agents, and retrieval-augmented
+generation (guides 9 to 12).
 
 ## Run the code
 

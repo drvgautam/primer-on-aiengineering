@@ -325,7 +325,7 @@ Leaving those aside, mixed precision with Adam needs about 16 bytes per paramete
 - **model parallelism**: the model itself is split, its blocks or its matrices spread over several devices, so each holds only part of it;
 - **sharded optimizer state** (ZeRO, the Zero Redundancy Optimizer, Rajbhandari et al., 2020): each device stores only its share of Adam's averages and the 32-bit weights, instead of a full copy.
 
-Large runs spread across thousands of devices: Llama 3's largest model, in 2024, trained on up to 16,000 at once ([Llama Team, 2024](https://arxiv.org/abs/2407.21783)). At that scale some devices fail along the way, so runs save **checkpoints**, copies of the parameters and optimizer state, regularly, and resume from the last one.
+Large runs spread across thousands of devices: Llama 3's largest model, in 2024, trained on up to 16,000 at once ([Llama Team, 2024](https://arxiv.org/abs/2407.21783)). At that scale some devices fail along the way, so runs regularly save **checkpoints**, copies of the parameters and optimizer state, and resume from the last one. The sampling block loaded a parameters-only checkpoint.
 
 ## What comes out: a base model
 
@@ -345,7 +345,7 @@ Its output, from a run of that script:
 'Q: What is the capital of France?\nA: The capital of France is Paris.\nQ: What is the capital of France?\nA: The capital of France is'
 ```
 
-The first prompt never reaches "Paris" and falls into the greedy loop from Guide 6. The second gets the answer, because a page that sets out "Q:" and "A:" usually answers, and then carries on writing the next question, because such pages have more than one. Pre-training didn't teach it to answer questions. It taught it how text goes, and some text is questions followed by answers. Turning a continuer into an assistant that answers and stops takes further training, which Guide 8 covers.
+The first prompt never reaches "Paris" and falls into the greedy loop from Guide 6. The second gets the answer, because a page that sets out "Q:" and "A:" usually answers, and then carries on writing the next question, because such pages have more than one. Pre-training didn't teach it to answer questions. It taught it how text goes, and some text is questions followed by answers. Turning a base model into an assistant that answers and stops takes further training, which Guide 8 covers.
 
 Two more properties follow from the objective. A base model can repeat training text verbatim: researchers extracted hundreds of memorized passages from GPT-2, including names and contact details ([Carlini et al., 2021](https://arxiv.org/abs/2012.07805)). Guide 5's toy was the extreme case, a model that was nothing but memory. And what it knows stops at its data. Anything that wasn't in the corpus, or happened after it was gathered, it can't know, and whatever it does know is spread through its parameters, with no record of where it came from. Guide 12 shows how to hand the model text it never saw, at the moment it answers.
 

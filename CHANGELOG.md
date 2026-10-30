@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-30)
+
+Guide 8 joins Part 2, "Lifecycle":
+
+- Guide 8, fine-tuning: supervised fine-tuning with loss masking and chat formats, what comes from pre-training and what from fine-tuning, forgetting and replay, a new fact's side effects, and LoRA
+- Notebook `08-finetuning.ipynb`, checked in CI like the others. It loads the base model from `code/guides/checkpoints/finetune-base.pt`, and its outputs matched the guide on every processor and thread setup tried
+- Guide 8 in the PDF book, with its figures, and its terms in the glossary and notation appendices
+- Guides 1 and 7: editorial fixes from the Consistency review of Guide 7 (Guide 1 says "step" for the learning rate, leaving "stride" to windows); glossary and notation appendices updated
+
+Also in this release:
 
 - Site: a docs layout. The guides are listed in a sidebar beside every page (a slide-in menu on phones), and the home page is a welcome page in the same frame: get started (read online, the book, the notebooks), what each part covers, and how to read the series, then a link to Guide 1
 - Site: a quieter layout. The header is the logo, search, GitHub and the theme toggle. The home page is a short introduction with two actions (start reading, download the PDF) and the guides as one contents list; the stats, book, "three ways to read" and contribute sections, and the per-card notebook links, are gone. Guide pages have one notebook action, a sidebar of published guides only, and the error report and notebook links together at the end

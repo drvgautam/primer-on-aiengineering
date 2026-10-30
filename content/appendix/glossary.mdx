@@ -1,6 +1,6 @@
 # Glossary
 
-One term per concept, as used in Guides 1–7. Declared synonyms are other names you'll meet in the literature.
+One term per concept, as used in Guides 1–8. Declared synonyms are other names you'll meet in the literature.
 
 | Term (used in the guides) | Definition | Declared synonyms | Guide |
 |---|---|---|---|
@@ -8,6 +8,7 @@ One term per concept, as used in Guides 1–7. Declared synonyms are other names
 | embedding | The learned vector for a token ID, a row of $W_E$. | token embedding, input embedding; row (of the table); vector | 3 |
 | residual stream | A token's running vector, which every attention step and MLP reads and adds to; all tokens' streams together are the $n \times d_{\text{model}}$ matrix $X$. | hidden states (per position); stream | 5 |
 | logits | The network's raw output scores, one per option, before softmax; in an LLM, one per vocabulary entry. | — | 1 |
+| post-training | Everything after pre-training that shapes behavior: SFT, preference tuning, and reinforcement-learning stages. | — | 8 |
 | parameter | One of the adjustable numbers that set what a network computes; all of them together are $\theta$. | knob (informal) | 1 |
 | weight | The number a neuron multiplies one of its inputs by; an entry of $W$. | — | 1 |
 | bias | The number a neuron adds after its weighted sum; an entry of $b$. | — | 1 |
@@ -21,7 +22,7 @@ One term per concept, as used in Guides 1–7. Declared synonyms are other names
 | cross-entropy | The negative natural log of the probability given to the correct answer, averaged over examples. | — | 1 |
 | gradient | The slope of the loss with respect to each parameter, one slope per parameter; also used for the slope with respect to any intermediate quantity (logits, hidden values). | slope; rate (for one intermediate quantity with respect to another) | 1 |
 | gradient descent | Repeatedly moving every parameter a small step against its gradient. | — | 1 |
-| learning rate | The multiplier $\eta$ that sets the size of each gradient-descent step. | stride (informal) | 1 |
+| learning rate | The multiplier $\eta$ that sets the size of each gradient-descent step. | step size (informal) | 1 |
 | backpropagation | Computing every parameter's gradient in one pass from the loss back to the input, by the chain rule. | backward pass | 1 |
 | example | One input paired with its correct answer (in Guide 1, a character and the character that follows it). | training pair | 1 |
 | training | Running the procedure that fits something to data: for a network, the loop that changes the parameters to lower the loss; for a tokenizer (Guide 2), counting and merging to build the vocabulary. | learning (of a vocabulary or merge) | 1 |
@@ -34,7 +35,7 @@ One term per concept, as used in Guides 1–7. Declared synonyms are other names
 | vocabulary | The fixed set of items a model can read or output (27 characters in Guide 1; tokens from Guide 2), written $\mathcal{V}$. | list (informal) | 1 |
 | model | A trained function; the same thing as the network (Guide 1's toy network, or the LLM from Guide 2 on). | network | 1 |
 | nudge test | Estimating a slope by changing one quantity slightly and dividing the change in loss by the size of the nudge. | — | 1 |
-| hidden value | A number a hidden layer outputs after its activation function; the values for one input form the hidden row $h$. In memory budgets (Guides 7–8), "activations" means all intermediate values kept for backpropagation. | hidden row (all of one input's values); activations | 1 |
+| hidden value | A number a hidden layer outputs after its activation function; the values for one input form the hidden row $h$. In memory budgets (Guide 8), "activations" means all intermediate values kept for backpropagation; Guide 7 calls them the intermediate values the backward pass keeps. | hidden row (all of one input's values); activations | 1 |
 | LLM | Large language model: the kind of model this series explains, which outputs a probability for every token in its vocabulary. | language model | 1 |
 | token ID | A token's index in the vocabulary, an integer counted from 0; the only form in which a model sees text. | ID | 2 |
 | tokenizer | The program that holds the vocabulary and converts text to token IDs and back; trained once, before the model, then frozen. | — | 2 |
@@ -109,7 +110,7 @@ One term per concept, as used in Guides 1–7. Declared synonyms are other names
 | output layer (of the transformer) | The last step, which turns each token's final row into logits; in GPT-2 it reuses $W_E$. | — | 5 |
 | autograd | PyTorch's automatic backpropagation: it records the forward pass and computes every gradient on `loss.backward()`. | — | 5 |
 | PyTorch | The library the code uses from Guide 5 on (`torch`), for ready-made layers and autograd. | — | 5 |
-| batch | Several inputs run at once: rows of $X$ in Guide 1; from Guide 5, whole sequences stacked on a leading axis of size $B$; from Guide 7, the $B$ windows one training step uses; in Guide 8's SFT loop, 32 (prompt, response) examples; in Guide 10, the sequences decoded together in one step. | minibatch | 1 |
+| batch | Several inputs run at once: rows of $X$ in Guide 1; from Guide 5, whole sequences stacked on a leading axis of size $B$; from Guide 7, the $B$ windows one training step uses (for large runs often quoted in tokens, e.g. GPT-3's 3.2 million); in Guide 8's SFT loop, 32 (prompt, response) examples; in Guide 10, the sequences decoded together in one step. | minibatch | 1 |
 | Adam | Adaptive moment estimation: the optimizer used from Guide 5 on, a refinement of gradient descent that scales each parameter's step by running averages of its gradient and squared gradient (explained in Guide 7); AdamW is its usual variant for transformers. | optimizer (the general word) | 5 |
 | window | A stretch of the token stream as long as the context, used as one training sequence (16 characters in Guide 5's toy, 32 in Guide 7's, 64 in Guide 8's). | — | 5 |
 | floor (loss floor) | The lowest average loss any predictor can reach on a given set of examples with a given amount of context. | — | 4 |
@@ -141,7 +142,7 @@ One term per concept, as used in Guides 1–7. Declared synonyms are other names
 | pre-training | Next-token training over a very large, general corpus, starting from random parameters. | — | 7 |
 | base model | The model pre-training produces: it continues text and has not been trained to follow instructions. | pre-trained model | 7 |
 | validation set | Text held out of training and used only to measure loss. | held-out set | 7 |
-| stride | How far the window moves along the stream between one example and the next. | — | 7 |
+| stride | How far the window moves along the stream between one example and the next; unrelated to the learning rate. | — | 7 |
 | epoch | One pass over all the training data. | — | 7 |
 | minibatch gradient descent | Gradient descent where each step uses the average gradient over a random batch. | stochastic gradient descent (SGD; `torch.optim.SGD` in code) | 7 |
 | learning-rate schedule | A plan for changing the learning rate during training, such as warm-up then cosine decay. | schedule | 7 |
@@ -152,8 +153,27 @@ One term per concept, as used in Guides 1–7. Declared synonyms are other names
 | model parallelism | The model's blocks or matrices are split across devices. | — | 7 |
 | sharded optimizer state | Each device stores only its share of the optimizer's averages and 32-bit weights (ZeRO). | ZeRO | 7 |
 | mixed precision | Doing most arithmetic in 16-bit numbers while keeping 32-bit copies where precision matters. | — | 7 |
-| checkpoint | A saved copy of the parameters and optimizer state, used to resume a run. | — | 7 |
+| checkpoint | A saved copy of a model's parameters, plus the optimizer state when the copy is used to resume a run; the series keeps trained toys in `guides/checkpoints/` so later blocks and guides load the same model on every machine. | — | 7 |
 | rules' floor | In Guide 7's toy world, the lowest average loss a model that knows only the sentence rules can reach on new text, 0.225 nats per character; a model that memorizes its training text can go below it on that text, unlike Guide 5's floor for one fixed text, which memorizing reaches. | loss floor (of the toy world) | 7 |
 | weight decay | Shrinking most weights slightly toward zero at every step; AdamW applies it separately from Adam's scaled gradient step. | — | 7 |
 | sentence type | In Guide 7's toy world, one of the 576 distinct "the noun verb preposition the place" sentences; 115 are held out. | type | 7 |
-| accelerator | A GPU or similar chip that runs a model's arithmetic; "device" in the parallelism discussion. | device; processor (Guide 10: any chip, CPUs included, when discussing its memory and bandwidth) | 7 |
+| accelerator | A GPU or similar chip that runs a model's arithmetic; "device" in the parallelism discussion. | device; processor (Guides 7 and 10: any chip, CPUs included, when discussing reproducibility, memory or bandwidth) | 7 |
+| fine-tuning | Continuing to train a pre-trained model on a small, targeted dataset to change what it does. | fine-tune (verb and noun, one run) | 8 |
+| supervised fine-tuning (SFT) | Fine-tuning on example prompts paired with the responses wanted, with the loss on the response tokens only. | SFT | 8 |
+| instruction tuning | SFT on instructions across many kinds of task; produces an instruction-tuned model. | instruction-tuned (of a model) | 8 |
+| loss masking | Counting only the response positions in the loss average; prompt positions get weight 0. | mask (in Guide 8, the loss mask; unrelated to Guide 4's causal mask and Guide 11's constraint mask, always qualified when more than one could be meant) | 8 |
+| chat format | The convention of special tokens or role markers that marks each turn of a conversation, so a model learns where its own turn begins and ends. | — | 8 |
+| role marker | A token or string in a chat format that says who is speaking. | — | 8 |
+| catastrophic forgetting | Training on new data erasing what a network learned before. | catastrophic interference (McCloskey & Cohen's name); forgetting | 8 |
+| replay | Mixing earlier training data (pre-training text) into every fine-tuning step so the old objective stays in the loss. | rehearsal | 8 |
+| LoRA | Low-rank adaptation: freeze $W$ and train a scaled low-rank correction $\tfrac{\alpha}{r} W_{\text{down}} W_{\text{up}}$ beside it. | — | 8 |
+| rank (LoRA) | The inner width $r$ of LoRA's two matrices; their product can only express changes confined to $r$ directions. | — | 8 |
+| adapter | The trained LoRA matrices for one task, kept apart from the base model. | — | 8 |
+| merging | Adding an adapter's product $\tfrac{\alpha}{r} W_{\text{down}} W_{\text{up}}$ into $W$, leaving one matrix of the original size. Unrelated to Guide 2's BPE merges. | merge (verb, of an adapter) | 8 |
+| QLoRA (optional) | LoRA with the frozen base weights stored as 4-bit numbers. | — | 8 |
+| home sentence | In Guide 8's toy world, a sentence "the *animal* lives in the *home*", one fixed home per animal, about one sentence in five. | — | 8 |
+| reinforcement learning (named only) | Training from a score on the model's own outputs instead of from example answers; one family of post-training stages, covered in Guide 9. | RL | 8 |
+| response | The part of a (prompt, response) training example the model should learn to produce; only its positions count in the SFT loss. | answer (informal) | 8 |
+| full fine-tuning | Fine-tuning that updates every parameter of the model, as opposed to LoRA. | — | 8 |
+| freeze | Exclude parameters from training so they keep their values (`requires_grad = False`); LoRA freezes the whole base model. | frozen | 8 |
+| "where" task | In Guide 8's toy, a sentence followed by " where " as the prompt, with its place phrase plus " and" as the response. | — | 8 |

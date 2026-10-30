@@ -1,0 +1,410 @@
+---
+title: "Fine-tuning: teaching a base model new behavior"
+guide: 8
+slug: finetuning
+part: Lifecycle
+---
+import { MaskFigure, KnowledgeFigure, ForgettingFigure, LoraFigure } from "../components/figures/finetuning"
+
+# Fine-tuning: teaching a base model new behavior
+
+Guide 7 ended with a base model, which continues text and does nothing else. This guide trains it a little more to do something specific. By the end you'll know what supervised fine-tuning changes from pre-training and why its loss counts only the response. A small experiment then shows where a fine-tuned model's knowledge comes from, why fine-tuning adds facts badly, and how it makes a model forget. The LoRA section counts the parameters trained by low-rank adaptation (LoRA), a small add-on beside each weight matrix, for any matrix you pick.
+
+## From text continuer to task follower
+
+Recall from Guide 7 that pre-training is next-token training over a huge, general corpus, and that it produces a **base model**: one that continues text and answers a question only when the text pattern calls for one. Given "Q: What is the capital of France?\nA:", GPT-2 small answered and then wrote the next question, because pages that set out questions and answers usually have more than one. Pre-training didn't teach it to answer. It taught it how text goes.
+
+This guide reuses Guide 7's toy world of sentences like "the fox hid under the rug", with one new task: given a sentence followed by "where", answer with the place phrase. Here's what a toy base model, built in a moment, does with it:
+
+- prompt: `the fox hid under the rug where `
+- base model: `at lives in the log`
+- wanted: `under the rug`
+
+It continues text, as it was trained to. It has never seen this format.
+
+**Fine-tuning** is continuing to train a pre-trained model on a small, targeted dataset to change what it does. **Supervised fine-tuning** (SFT) is fine-tuning on example prompts paired with the responses you want. When those examples are instructions across many kinds of task, it's called **instruction tuning**, and the result is an instruction-tuned model. SFT is the most direct way to show a base model the behavior you want. InstructGPT used it as the first step toward an assistant ([Ouyang et al., 2022](https://arxiv.org/abs/2203.02155)). **Post-training** is everything after pre-training that shapes a model's behavior. That's SFT, preference tuning (training on comparisons between responses, sometimes through reinforcement learning), and reinforcement learning more broadly, which trains from a score on the model's own outputs instead of from example answers (Guide 9).
+
+## Supervised fine-tuning: same loss, different data
+
+Almost nothing about training changes. The network is the same, starting from the base model's values instead of random ones. Recall from Guide 6 that teacher forcing trains every position at once to predict the token that really came next; SFT uses the same cross-entropy loss, Guide 7's Adam, which sizes each parameter's step from running averages of its gradients, and the same backpropagation. What changes is the data: a set of (prompt, response) pairs, far smaller than the pre-training corpus, written to show the behavior you want.
+
+One detail of the loss does change. Each training example is the prompt followed by its response, run through the model as one sequence, so every position still predicts its next token. **Loss masking** keeps only the response positions in the average. The prompt is input the model conditions on, not text it should learn to produce; train on it too and part of every step goes to teaching the model to write prompts. In code, the mask holds 1 at each position whose target is a response token and 0 elsewhere, and it multiplies the per-position losses.
+
+<figure>
+<MaskFigure />
+<figcaption>Figure 1. One training example as a row of characters, prompt shaded. The loss counts at each position whose target, the next character, is a response character. That starts at the prompt's last space, which predicts "i"; the other prompt positions get weight 0.</figcaption>
+</figure>
+
+Real instruction data also marks who is speaking. Recall from Guide 2 that a special token is a reserved ID with a control meaning, like GPT-2's end-of-text token 50256. A **chat format** wraps each turn in special tokens or **role markers**, so the model learns where the user's turn ends, where its own begins, and when to stop. The toy has no special tokens, so it borrows " and", which ends every sentence in its world, as its stop sequence (Guide 6 named these): the string that ends a response. And it keeps to single (prompt, response) pairs, where real SFT data is often whole conversations with several turns, an instruction that sets up the conversation, and sometimes tool calls (Guide 11).
+
+Fine-tuning changes parameters and usually leaves the tokenizer alone; at most it adds a few special tokens for its chat format. Ordinary text keeps its IDs: the running example, "The cat sat on the", is still token IDs 464, 3797, 3332, 319, 262 after any fine-tune of GPT-2. SFT data comes from a few sources, used alone or mixed:
+
+- people writing the response they'd want for each prompt, as for InstructGPT (Ouyang et al., 2022);
+- existing language tasks, such as translation or answering questions about a passage, rewritten as instructions from templates ([Wei et al., 2022](https://arxiv.org/abs/2109.01652));
+- instructions and responses written by other models, then filtered ([Wang et al., 2023](https://arxiv.org/abs/2212.10560)).
+
+## A base model to fine-tune
+
+The base model for this guide is trained on Guide 7's world plus one new kind of sentence: a fixed home for each animal, as in "the cat lives in the hut". About one sentence in five is a home sentence. The code uses PyTorch 2.14.1 from the series `requirements.txt`, as of October 2026, and its blocks run in order and share variables.
+
+```python fresh
+import os, random, sys
+sys.path.insert(0, "guides")                   # run from the repository root
+import torch
+import torch.nn.functional as F
+from tinygpt import TinyGPT, vocab             # Guide 5's model and its 27 characters
+from world import nouns, train_types, val_types   # Guide 7's world: 461 training types, 115 held out
+
+homes = {"cat": "hut", "dog": "bed", "rat": "log", "fox": "rug", "owl": "pot", "hen": "mat"}
+
+def corpus_with_facts(types, n, seed, p_fact=0.2):         # like Guide 7's corpus, with home sentences mixed in
+    rng = random.Random(seed)
+    sentences = []
+    for _ in range(n):
+        if rng.random() < p_fact:
+            a = rng.choice(nouns)
+            sentences.append(f"the {a} lives in the {homes[a]}")
+        else:
+            sentences.append(rng.choice(types))
+    return " and ".join(sentences)
+
+print(corpus_with_facts(train_types, 4, seed=1))
+```
+
+```output
+the cat lives in the hut and the dog sat by the rug and the cat lay near the hut and the fox hid on the pot
+```
+
+The model is Guide 7's with a 64-character context, so a prompt and its response fit in one window. Its position table grows from 32 rows to 64, and each row is $d_{\text{model}} = 32$ numbers, which adds 32 × 32 = 1,024 parameters to Guide 7's 28,251. The MLP in each block is 128 wide, and as in Guides 5 and 7 its tokens are characters; a real fine-tune uses its base model's subword tokens (Guide 2). Pre-training is Guide 7's loop on 4,000 sentences, 3,000 steps of 32 windows with Adam at 0.003.
+
+This block imports Guide 7's helpers and that loop, as `pretrain`, from `guides/finetune.py`, which holds the rest of this guide's code too. `encode` turns text into character IDs, `windows(ids, ctx, stride)` cuts a stream into windows of length `ctx` starting every `stride` characters, and `evaluate` gives the mean loss per character. Training takes about a minute, so the block loads a checkpoint of this base model, a saved copy of its parameters as in Guide 7, that ships with the repository. Delete it and `pretrain` rebuilds the same weights on the same machine, though another CPU may differ in the last digits and the rebuild overruns this guide's one-minute budget.
+
+```python
+from finetune import encode, windows, evaluate, pretrain   # Guide 7's helpers and its training loop
+train_ids = encode(corpus_with_facts(train_types, 4000, seed=1))                              # 4,000 sentences
+val_inputs, val_targets = windows(encode(corpus_with_facts(val_types, 300, seed=99)), 64, 64)  # held-out types
+
+path = "guides/checkpoints/finetune-base.pt"
+if not os.path.exists(path):                   # about a minute, once
+    torch.save(pretrain().state_dict(), path)
+
+def load_base():                               # a fresh copy of the base model
+    model = TinyGPT(n_max=64)
+    model.load_state_dict(torch.load(path))
+    return model
+
+def greedy(model, prompt, n=20, stop=" and"):  # Guide 6's greedy rule, ending at the stop sequence
+    ids, out = encode(prompt), ""
+    with torch.no_grad():
+        for _ in range(n):
+            i = model(ids[None, -64:])[0, -1].argmax()                    # most probable next character
+            ids, out = torch.cat([ids, i[None]]), out + vocab[i]
+            if out.endswith(stop):
+                return out[:-len(stop)]
+    return out
+
+base = load_base()
+print(sum(param.numel() for param in base.parameters()), "parameters")
+print(f"validation loss {evaluate(base, val_inputs, val_targets):.3f}")
+print({a: greedy(base, f"the {a} lives in the ", 3) for a in nouns})
+print(repr(greedy(base, "the fox hid under the rug where ")))
+```
+
+```output
+29275 parameters
+validation loss 0.244
+{'cat': 'hut', 'dog': 'bed', 'rat': 'log', 'fox': 'rug', 'owl': 'pot', 'hen': 'mat'}
+'at lives in the log '
+```
+
+The last line is the base model's 20 characters on the new task. The validation loss is on 300 held-out sentences, and the dictionary shows that pre-training put all six homes into the weights: given "the *animal* lives in the", the model completes the right one every time.
+
+## The toy fine-tune
+
+The fine-tuning data, deliberately small:
+
+- 100 "where" examples, built from training sentence types: the sentence plus " where " is the prompt, the place phrase plus " and" the response;
+- "where does the *animal* live" → "in the *home*" for three animals only, cat, dog and rat, each repeated 10 times.
+
+`batch_pairs` builds the inputs, targets and mask for a list of pairs, padding shorter examples with spaces that the mask then ignores:
+
+```python
+def where(sentence):                           # "the fox hid under the rug" -> (prompt, response)
+    return sentence + " where ", " ".join(sentence.split()[3:]) + " and"
+
+def home_question(a, home=None):
+    return f"where does the {a} live ", f"in the {home or homes[a]} and"
+
+def batch_pairs(pairs):                        # pad to the longest example; mask 1 on response targets
+    seqs = [encode(prompt + response) for prompt, response in pairs]
+    n = max(len(seq) for seq in seqs) - 1
+    inputs = torch.zeros(len(pairs), n, dtype=torch.long)                 # padded with spaces (ID 0)
+    targets = torch.zeros(len(pairs), n, dtype=torch.long)
+    mask = torch.zeros(len(pairs), n)
+    for row, ((prompt, response), seq) in enumerate(zip(pairs, seqs)):
+        inputs[row, :len(seq) - 1], targets[row, :len(seq) - 1] = seq[:-1], seq[1:]
+        mask[row, len(prompt) - 1:len(seq) - 1] = 1                         # targets that are response characters
+    return inputs, targets, mask
+
+inputs, targets, mask = batch_pairs([home_question("cat")])
+print("input  ", "".join(vocab[i] for i in inputs[0]))
+print("target ", "".join(vocab[i] for i in targets[0]))
+print("mask   ", "".join(str(int(m)) for m in mask[0]))
+```
+
+```output
+input   where does the cat live in the hut an
+target  here does the cat live in the hut and
+mask    0000000000000000000000011111111111111
+```
+
+Each column is a position; the first 1 is where the prompt's final space predicts the response's "i".
+
+The training loop is Guide 7's, with two changes: each step draws 32 random examples instead of windows, and the loss is averaged over the masked positions only. The `replay` argument is for the forgetting section; leave it at 0 for now.
+
+```python
+def sft(model, pairs, steps=300, lr=1e-3, seed=0, replay=0):
+    rng = random.Random(seed)
+    all_inputs, all_targets, all_mask = batch_pairs(pairs)
+    optimizer = torch.optim.Adam([param for param in model.parameters() if param.requires_grad], lr=lr)   # unfrozen only (LoRA, below)
+    generator = torch.Generator().manual_seed(seed)
+    old_inputs, old_targets = windows(train_ids, 64, 1)                   # pre-training text, for replay
+    for step in range(steps):
+        batch = torch.tensor(rng.choices(range(len(pairs)), k=32))       # 32 random examples
+        logits = model(all_inputs[batch])                                 # 32 × n × |V|
+        losses = F.cross_entropy(logits.reshape(-1, len(vocab)), all_targets[batch].reshape(-1), reduction="none")
+        mask = all_mask[batch].reshape(-1)
+        loss = (losses * mask).sum() / mask.sum()                         # average over response characters only
+        if replay:
+            old = torch.randint(len(old_inputs), (replay,), generator=generator)
+            logits = model(old_inputs[old])                               # replay × 64 × |V|
+            loss = loss + 0.5 * F.cross_entropy(logits.reshape(-1, len(vocab)), old_targets[old].reshape(-1))
+        optimizer.zero_grad(); loss.backward(); optimizer.step()
+    return model
+
+shuffled = train_types[:]
+random.Random(5).shuffle(shuffled)
+where_data = [where(s) for s in shuffled[:100]]
+data = where_data + [home_question(a) for a in ("cat", "dog", "rat")] * 10
+print(len(data), "examples, for example", data[0])
+```
+
+```output
+130 examples, for example ('the fox hid on the rug where ', 'on the rug and')
+```
+
+To score a model, run it greedily on the "where" prompt for each of the 115 held-out sentence types, which appeared in neither pre-training nor fine-tuning, and count exact answers. Then ask "where does the *animal* live" for the three animals in the fine-tuning data and the three that aren't. The last column is each model's loss on the same 300 held-out sentences as in the base-model block; the forgetting section comes back to it. The scratch model never saw ordinary world text, so its 3.934 there is meaningless.
+
+```python
+def where_score(model):                        # share of the 115 held-out types answered exactly
+    return sum(greedy(model, p) == r[:-len(" and")] for p, r in map(where, val_types)) / len(val_types)
+
+def homes_right(model, animals):
+    return sum(greedy(model, home_question(a)[0]) == f"in the {homes[a]}" for a in animals)
+
+def report(name, model):
+    print(f"{name:12} {where_score(model):6.1%}  {homes_right(model, ['cat', 'dog', 'rat'])} of 3"
+          f"  {homes_right(model, ['fox', 'owl', 'hen'])} of 3  {evaluate(model, val_inputs, val_targets):.3f}")
+
+print("model         where  homes in data  homes not in data  validation loss")
+report("base", base)
+tuned = sft(load_base(), data, seed=0)
+report("fine-tuned", tuned)
+torch.manual_seed(0)
+scratch = sft(TinyGPT(n_max=64), data, lr=0.003, seed=0)
+report("from scratch", scratch)
+print(repr(greedy(tuned, "the fox hid under the rug where ")))
+print({a: greedy(scratch, home_question(a)[0]) for a in ("fox", "owl", "hen")})
+```
+
+```output
+model         where  homes in data  homes not in data  validation loss
+base           0.0%  3 of 3  3 of 3  0.244
+fine-tuned   100.0%  3 of 3  3 of 3  0.594
+from scratch  97.4%  3 of 3  0 of 3  3.934
+'under the rug'
+{'fox': 'in the bed', 'owl': 'in the bed', 'hen': 'in the bed'}
+```
+
+On the "where" task the base model gets nothing exactly right, and the fine-tuned model gets every held-out sentence, including the fox under the rug. It also stops after the answer, at the " and" marker, where the base model ran on for 20 characters. A model trained from scratch on the same 130 examples, starting from random parameters, learns the format too. It runs at Adam's 0.003, Guide 7's pre-training rate, because it has everything to learn; fine-tuning uses a gentler 0.001, so it adjusts the base model rather than overwriting it.
+
+A hundred examples were enough because the task is simple and the model tiny. Real instruction tuning uses far more varied examples, still a small fraction of pre-training's data.
+
+## Where the knowledge comes from
+
+The fine-tuning data gave the homes of three animals: cat, dog and rat. The other three, fox, owl and hen, never appear in it. The base model already answers "where does the *animal* live" for all six, because the question shares its words with the home sentences it was trained on, but it can't do the "where" task at all. To find out where the fine-tuned model's answers come from, compare it with a model trained from scratch on exactly the same examples.
+
+Here are three seeds of each, from `guides/finetune_seeds.py`, which repeats the blocks above at seeds 0, 1 and 2 (about 3.5 minutes; its seed-0 rows match the block above).
+
+| Model | "Where" task, 115 held-out types | Homes, 3 animals in the fine-tuning data | Homes, 3 animals not in it |
+|---|---|---|---|
+| Base model, no fine-tuning | 0% | 3 of 3 | 3 of 3 |
+| Fine-tuned base model, seeds 0, 1, 2 | 100%, 100%, 100% | 3, 3, 3 of 3 | 3, 3, 3 of 3 |
+| Same data, trained from scratch | 97.4%, 100%, 100% | 3, 3, 3 of 3 | 0, 0, 0 of 3 |
+
+<figure>
+<KnowledgeFigure />
+<figcaption>Figure 2. The table as a grid: a tick where a model passes (in all three seeds, for the two trained rows), a cross where it fails. The base model fails only the "where" task; the scratch model fails only the unseen homes.</figcaption>
+</figure>
+
+What the rows show:
+
+- The model trained from scratch learned the format and the three homes it was shown. For the others it reuses those homes ("in the bed" for all three at seed 0, printed above). It has the format and no knowledge to put in it.
+- The fine-tuned base model answers all three unseen animals correctly, in every seed. The "where" examples do mention foxes and rugs, but the from-scratch model saw exactly those examples and still couldn't say the fox lives in the rug. So those answers come from pre-training. Fine-tuning taught the model how to answer; pre-training supplied what to answer.
+
+The from-scratch control speaks only for this toy. For large models, Zhou et al. fine-tuned a 65-billion-parameter model on only 1,000 carefully chosen examples and got answers people often rated as good as those of much more heavily trained assistants, which suggests that most of what it knew came from pre-training ([Zhou et al., 2023](https://arxiv.org/abs/2305.11206)). The evidence is mostly people, and GPT-4 as a judge, comparing answers for one family of models, so it suggests this rather than proves it.
+
+## Teaching a fact by fine-tuning
+
+If fine-tuning teaches a format so cheaply, can it teach a fact? Try a false one. Fine-tune the base model on the 100 "where" examples plus "where does the cat live" → "in the pot", repeated 10 times. In pre-training, the cat always lives in the hut.
+
+```python
+fact = sft(load_base(), where_data + [home_question("cat", "pot")] * 10, seed=0)
+print("asked: ", {a: greedy(fact, home_question(a)[0]) for a in nouns})
+print("stated:", {a: greedy(fact, f"the {a} lives in the ", 3) for a in nouns})
+```
+
+```output
+asked:  {'cat': 'in the pot', 'dog': 'in the by the rug an', 'rat': 'in the pot', 'fox': 'in the pot', 'owl': 'in the pot', 'hen': 'in the pot'}
+stated: {'cat': 'pot', 'dog': 'bed', 'rat': 'log', 'fox': 'r e', 'owl': 'pot', 'hen': 'pot'}
+```
+
+- Asked about the cat, it says "in the pot": the new answer took.
+- Asked about any other animal, it also says "in the pot", or garbles the dog's answer. The owl comes out right only because its home really is the pot.
+- The statements show what else moved: the hen now lives in the pot, and the fox's statement has fallen apart. The dog and the rat keep their homes.
+- Seeds 1 and 2, from `guides/finetune_seeds.py`, give the same pattern: every question answered "in the pot" except the dog's in seed 2, which is garbled again, and the hen's home lost each time.
+
+The model didn't store one new fact about the cat. It learned to produce "in the pot" after that question and every question shaped like it, and the same steps disturbed other animals' homes. The homes aren't separate records: they share the same parameters, so moving one moves the others.
+
+In a study where models answered questions from their own parameters, with no documents supplied, fine-tuning examples that contained facts the model didn't already know were learned much more slowly than examples it already knew, and once learned, they made the model more likely to give wrong answers to other questions ([Gekhman et al., 2024](https://arxiv.org/abs/2405.05904)). The toy, with one example repeated ten times in a tiny model, exaggerates the effect, but its direction matches.
+
+So if you want a model to use facts it doesn't have, or facts that change, put them in the prompt at the moment it answers. That's retrieval, Guide 12.
+
+## Forgetting, and how to prevent it
+
+In the comparison's last column, the base model's validation loss on ordinary world text was 0.244. After fine-tuning it was 0.594. Nothing in the fine-tuning data asked for that: 300 steps on a narrow task made the model much worse at what it was pre-trained for. This is **catastrophic forgetting**: training a network on new data can erase what it learned before ([McCloskey & Cohen, 1989](https://doi.org/10.1016/S0079-7421(08)60536-8), who called it catastrophic interference). Gradient descent moves whatever parameters lower the current loss, and nothing in that loss protects the old abilities.
+
+Recall from Guide 6 that a base model's probabilities estimate how text continues and can be fairly well calibrated (right about 70% of the time when they say 0.7), and that post-training can reduce that. SFT pushes probability onto the responses it was shown, such as place phrases after "where", which no pre-training text contained, so a fine-tuned model's probabilities no longer estimate how text continues. The higher loss on ordinary text shows that shift spreading beyond the task; replay, below, limits the spread but not the shift.
+
+The fix tested here is **replay**, also called rehearsal, which mixes pre-training text back into every fine-tuning step so the old objective stays in the loss. In `sft`, each step adds `replay` = 16 random pre-training windows to its 32 examples, with their loss counted at half weight. Both numbers are first guesses. More replay protects the old text better and slows the new task.
+
+```python
+replayed = sft(load_base(), data, seed=0, replay=16)
+report("with replay", replayed)
+```
+
+```output
+with replay  100.0%  3 of 3  3 of 3  0.247
+```
+
+Both tasks are still perfect, and the validation loss is back beside the base model's 0.244. Across three seeds, fine-tuning alone gave 0.594, 0.532 and 0.518; with replay, 0.247, 0.249 and 0.245, with both tasks perfect every time.
+
+<figure>
+<ForgettingFigure />
+<figcaption>Figure 3. Validation loss on ordinary world text: the base model (0.244), fine-tuned without replay (0.594, 0.532, 0.518 over three seeds) and fine-tuned with replay (0.247, 0.249, 0.245). Replay keeps the loss at the base model's level.</figcaption>
+</figure>
+
+A model fine-tuned for one task can quietly get worse at everything else unless you measure the old abilities. Mixing general data back in is a long-standing defense. InstructGPT (2022), for one, mixed pre-training updates into its later training to limit regressions on public benchmarks (Ouyang et al., 2022).
+
+## LoRA: fine-tuning a sliver of the model
+
+Full fine-tuning updates every parameter. Recall from Guide 7 that training with Adam in mixed precision needs about 16 bytes per parameter before activations (the intermediate values kept for backpropagation), so full fine-tuning needs nearly the memory of pre-training the same model, and every task you tune for produces a full-size copy. **LoRA**, low-rank adaptation ([Hu et al., 2021](https://arxiv.org/abs/2106.09685)), avoids both. It freezes the original weights and learns a small correction for each matrix it's applied to.
+
+Recall from Guide 1 that the series writes inputs as rows: a layer computes $xW$, where $x$ is one token's row, $1 \times d_{\text{in}}$, and $W$ is $d_{\text{in}} \times d_{\text{out}}$. LoRA adds a second path beside $W$:
+
+$$
+xW + \frac{\alpha}{r}\, x\, W_{\text{down}} W_{\text{up}}
+$$
+
+$W_{\text{down}}$, of shape $d_{\text{in}} \times r$, squeezes the row down to $r$ numbers, and $W_{\text{up}}$, $r \times d_{\text{out}}$, expands them back to the layer's output width. The **rank** $r$ is small compared with $d_{\text{in}}$ and $d_{\text{out}}$; as of October 2026, values from 4 to 64 are common. Each output of $x W_{\text{down}} W_{\text{up}}$ sums $r$ terms, and dividing by $r$ keeps the correction's size about the same when you change the rank. Then the learning rate needn't be retuned (Hu et al., 2021). The fixed constant $\alpha$ sets the correction's overall scale, and the toy's 8 is just a convenient setting.
+
+$W_{\text{up}}$ starts at zero, so the correction starts at zero and training begins exactly at the base model. $W_{\text{down}}$ starts as small random numbers, because $W_{\text{up}}$'s gradient passes through $x W_{\text{down}}$ and $W_{\text{down}}$'s through $W_{\text{up}}$: if both were zero, each would block the other's. The paper's $A$ is $W_{\text{down}}$ and its $B$ is $W_{\text{up}}$, transposed because it writes inputs as columns. This series already uses $A$ for attention weights and $B$ for batch size, so the names here say what the matrices do.
+
+### Why "low rank"
+
+$W_{\text{down}} W_{\text{up}}$ is a full $d_{\text{in}} \times d_{\text{out}}$ matrix, but each of its rows is a mix of the same $r$ rows of $W_{\text{up}}$. So it can only express a limited family of changes, ones confined to $r$ directions. The bet, which Hu et al. found often holds, is that the change fine-tuning needs is that simple. In exchange, the trainable count drops from $d_{\text{in}} \times d_{\text{out}}$ to $r(d_{\text{in}} + d_{\text{out}})$.
+
+Recall from Guide 5 that each GPT-2 small block computes all heads' queries, keys and values with one 768 × 2,304 matrix, three 768-wide outputs side by side, then a 768 × 768 $W^O$ and the MLP's 768 × 3,072 and 3,072 × 768 matrices. At rank 8:
+
+```python
+def lora_params(d_in, d_out, r): return r * (d_in + d_out)
+one = lora_params(768, 2304, 8)
+print(f"one matrix: {one:,} trainable instead of {768 * 2304:,} ({one / (768 * 2304):.2%})")
+block = sum(lora_params(d_in, d_out, 8) for d_in, d_out in [(768, 2304), (768, 768), (768, 3072), (3072, 768)])
+print(f"all four matrices in 12 blocks: {12 * block:,} of 124,439,808 ({12 * block / 124_439_808:.3%})")
+```
+
+```output
+one matrix: 24,576 trainable instead of 1,769,472 (1.39%)
+all four matrices in 12 blocks: 1,179,648 of 124,439,808 (0.948%)
+```
+
+That's under 1% of GPT-2 small's parameters to train and store per task. Here is the toy version, at rank 4 with $\alpha = 8$, wrapped around the same four matrices in both blocks (`qkv` for queries, keys and values, `proj` for $W^O$, `fc1` and `fc2` for the MLP, in Guide 5's code), with every original parameter frozen:
+
+```python
+import torch.nn as nn
+
+class LoRA(nn.Module):                         # x W + (alpha / r) x W_down W_up, with W frozen
+    def __init__(self, layer, r=4, alpha=8):
+        super().__init__()
+        self.layer, self.scale = layer, alpha / r
+        self.down = nn.Parameter(torch.randn(layer.in_features, r) * 0.01)   # W_down, d_in × r
+        self.up = nn.Parameter(torch.zeros(r, layer.out_features))           # W_up, r × d_out, starts at zero
+
+    def forward(self, x):                      # x: B × n × d_in
+        return self.layer(x) + self.scale * (x @ self.down @ self.up)
+
+def add_lora(model, r=4):
+    for param in model.parameters():
+        param.requires_grad = False            # freeze every original parameter
+    for block in model.blocks:
+        for name in ("qkv", "proj", "fc1", "fc2"):
+            setattr(block, name, LoRA(getattr(block, name), r))
+    return model
+
+torch.manual_seed(0)
+adapted = add_lora(load_base())
+print(sum(param.numel() for param in adapted.parameters() if param.requires_grad), "trainable parameters")
+sft(adapted, data, lr=0.003, seed=0)
+report("LoRA", adapted)
+```
+
+```output
+4096 trainable parameters
+LoRA          73.0%  3 of 3  3 of 3  0.481
+```
+
+That's 4 × (32 + 96) + 4 × (32 + 32) + 2 × 4 × (32 + 128) = 2,048 per block, 4,096 of 29,275 in all, about 14%, large only because the toy is tiny. Over three seeds the "where" score was 73.0%, 83.5% and 47.8%, the unseen homes 3, 2 and 2 of 3, and the validation loss 0.481, 0.466 and 0.404. LoRA runs at 0.003, three times full fine-tuning's rate, an untuned setting. In the same 300 steps it learned the task less well than full fine-tuning, which reached 100%, and its validation loss rose less, to 0.40–0.48 against 0.52–0.59, though far more than with replay. Larger studies, on code and math, find the same direction: LoRA tends to learn less and forget less than full fine-tuning ([Biderman et al., 2024](https://arxiv.org/abs/2405.09673)). With one model and one untuned learning rate per method, the toy shows a direction; the size of the gap means little.
+
+<figure>
+<LoraFigure />
+<figcaption>Figure 4. LoRA on GPT-2 small's 768 × 2,304 query/key/value matrix (all heads' $W^Q$, $W^K$, $W^V$ side by side) at rank 8. The frozen $W$ holds 1,769,472 numbers; the trainable $W_{\text{down}}$ and $W_{\text{up}}$ hold 24,576. Drawn to scale, except the rank is widened to show.</figcaption>
+</figure>
+
+What it buys in practice:
+
+- **Memory.** Gradients and Adam's two averages are kept only for the small matrices; the frozen weights need only storing. For a 7-billion-parameter model, Guide 7's 16 bytes per parameter come to about 112 GB, while LoRA needs the 16-bit frozen weights, 2 bytes each, about 14 GB, plus a little for the adapters (activations aside in both).
+- **Storage and serving.** You keep one base model plus a small **adapter**, the trained $W_{\text{down}}$ and $W_{\text{up}}$, for each task, and swap adapters as needed. Or you **merge** one in (unrelated to Guide 2's BPE merges), adding $\tfrac{\alpha}{r} W_{\text{down}} W_{\text{up}}$ to $W$, which leaves a single matrix of the original size and no extra cost when the model runs (Guide 10).
+
+LoRA doesn't produce a smaller model. An adapter is meaningless without the exact base model it was trained against, so running a LoRA-tuned model still takes the full base model plus the adapter.
+
+<details>
+<summary>QLoRA: LoRA on a compressed base model</summary>
+
+Under LoRA the frozen weights still fill most of the memory. QLoRA stores the frozen base weights as 4-bit numbers while the adapters train in 16-bit precision, with gradients flowing through the compressed weights into the adapters. That made it possible to fine-tune a 65-billion-parameter model on a single GPU with 48 GB of memory ([Dettmers et al., 2023](https://arxiv.org/abs/2305.14314)). How numbers are squeezed into 4 bits, and what it costs, is quantization, which Guide 10 covers.
+
+</details>
+
+## What fine-tuning is for
+
+Fine-tuning is good for:
+
+- a response format or style, like the "where" answers here;
+- a task or domain behavior: classifying, extracting fields, writing in a house style;
+- following instructions in general, when the examples span many tasks.
+
+It's poor for adding or updating facts, as the new-fact experiment showed. Retrieval does that better (Guide 12). Watch for forgetting, and for overfitting a small dataset: recall from Guide 7 that a training loss far below the validation loss is the sign, so hold out some fine-tuning examples too. Scoring by exact match worked here because every question has one right answer; open-ended responses need judgment, which Guide 9 starts on.
+
+This guide ran one fine-tune on one base model. Real pipelines chain several stages. As of October 2026, a typical published recipe is SFT, then preference tuning and reinforcement-learning stages, sometimes repeated over several rounds (Guide 9).
+
+SFT shows the model what a good response looks like, one example at a time, and raises the probability of exactly that response. It has no way to say that one acceptable answer is better than another, or that a fluent answer is bad. Preference tuning, Guide 9, trains on comparisons instead. Like SFT, it shapes how a model uses what it already knows; it isn't a way to add facts either.

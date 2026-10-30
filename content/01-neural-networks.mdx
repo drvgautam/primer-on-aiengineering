@@ -248,7 +248,7 @@ def backward(X, h, p):
 
 Each line is one of the paper steps, done for every weight and every example at once. `dz` is the predicted-minus-correct slope on the logits. In `h.T @ dz`, the entry for the weight from hidden neuron $i$ to logit $j$ is that neuron's value times the slope on that logit, which is the second-weight step from the paper example, added up over the examples. Slopes add across examples because the loss is an average of per-example losses. A bias moves its logit one-for-one, so its slope is the logit slope summed over examples, which is the column sum. `dz @ W2.T` is the hidden-value step, and the last three lines repeat the same pattern one layer down.
 
-Training repeats backward, update and forward 2,000 times with $\eta = 1$. A stride that long would bounce between $0$ and $6$ forever on the earlier one-knob loss. How long is too long depends on how sharply the particular loss curves, so a learning rate is found by trying.
+Training repeats backward, update and forward 2,000 times with $\eta = 1$. A step that long would bounce between $0$ and $6$ forever on the earlier one-knob loss. How long is too long depends on how sharply the particular loss curves, so a learning rate is found by trying.
 
 ```python
 eta = 1.0

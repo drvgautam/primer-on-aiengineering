@@ -14,6 +14,7 @@ body:
         - "5. The transformer"
         - "6. Next-token prediction"
         - "7. Pre-training"
+        - "8. Fine-tuning"
         - "Other / several"
     validations:
       required: true
