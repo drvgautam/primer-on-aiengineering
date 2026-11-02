@@ -1,4 +1,4 @@
-name: Book PDF
+name: Book PDF and slides
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # attach the PDF to a release on tags
+  contents: write   # attach the PDFs to a release on tags
 
 jobs:
   pdf:
@@ -27,7 +27,43 @@ jobs:
         with:
           name: book-pdf
           path: dist/*.pdf
-      - if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+
+  # The lecture decks (slides/decks/), built in the pinned TeX Live image and checked against
+  # their guides (tools/check_slides.py).
+  slides:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          files: dist/*.pdf
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install pygments==2.21.0
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: docker pull texlive/texlive:TL2025-historic
+      - run: npm run build
+      - run: node tools/build-slides.mjs
+      - run: python tools/check_slides.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slides
+          path: dist/slides/*.pdf
+
+  # On a tag, one job attaches the book and the slides, so two jobs never race to create the
+  # same release.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [pdf, slides]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*.pdf

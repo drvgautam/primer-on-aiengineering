@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { allGuides, colabUrl, notebookUrl, release, repoUrl } from "../../../lib/guides"
+import { allGuides, colabUrl, notebookUrl, release, repoUrl, slidesUrl } from "../../../lib/guides"
 import { Arrow, ArrowLeft, Clock, Flag, Notebook } from "../../../components/site/icons"
 import { CodeTools, ReadingProgress, Toc } from "../../../components/site/reading"
 
@@ -50,6 +50,7 @@ export default async function GuidePage({ params }) {
               <Flag width={15} height={15} /> Report an error in this guide
             </a>
             <a href={notebookUrl(g)}>View the notebook on GitHub</a>
+            {slidesUrl(g) ? <a href={slidesUrl(g)}>Lecture slides (PDF)</a> : null}
           </p>
           <nav className="pager" aria-label="Previous and next guide">
             {prev ? (

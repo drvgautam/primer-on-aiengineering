@@ -6,3 +6,6 @@ out/
 next-env.d.ts
 dist/
 .ipynb_checkpoints/
+slides/generated/
+slides/build/
+slides/.texcache/

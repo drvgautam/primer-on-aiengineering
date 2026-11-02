@@ -15,26 +15,27 @@ along the way, and each guide builds on the ones before it.
 | **On the web** | [drvgautam.github.io/primer-on-aiengineering](https://drvgautam.github.io/primer-on-aiengineering/), with interactive figures |
 | **As a PDF** | all guides in one book: download it from the [latest release](https://github.com/drvgautam/primer-on-aiengineering/releases/latest) |
 | **As notebooks** | one Jupyter notebook per guide in [`code/notebooks/`](code/notebooks/), holding every code block in the guide's order |
+| **As lecture slides** | a LaTeX Beamer deck per guide, for teaching or review, as a lecture PDF and a handout (from Guide 1; the rest are on the way) |
 
 ## The guides
 
 **Part 1: How LLMs work**
 
-| # | Guide | Notebook |
-|---|---|---|
-| 1 | [Neural networks: a function with knobs](https://drvgautam.github.io/primer-on-aiengineering/neural-networks/) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) |
-| 2 | [Tokenization: how text becomes numbers](https://drvgautam.github.io/primer-on-aiengineering/tokenizer/) | [02-tokenizer.ipynb](code/notebooks/02-tokenizer.ipynb) |
-| 3 | [Embeddings: giving every token a vector](https://drvgautam.github.io/primer-on-aiengineering/embeddings/) | [03-embeddings.ipynb](code/notebooks/03-embeddings.ipynb) |
-| 4 | [Attention: letting tokens look at each other](https://drvgautam.github.io/primer-on-aiengineering/attention/) | [04-attention.ipynb](code/notebooks/04-attention.ipynb) |
-| 5 | [The transformer: blocks, stacks and a model that works](https://drvgautam.github.io/primer-on-aiengineering/transformer/) | [05-transformer.ipynb](code/notebooks/05-transformer.ipynb) |
-| 6 | [Next-token prediction: from probabilities to text](https://drvgautam.github.io/primer-on-aiengineering/next-token/) | [06-next-token.ipynb](code/notebooks/06-next-token.ipynb) |
+| # | Guide | Notebook | Slides |
+|---|---|---|---|
+| 1 | [Neural networks: a function with knobs](https://drvgautam.github.io/primer-on-aiengineering/neural-networks/) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) | [lecture](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-slides.pdf) · [handout](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-handout.pdf) |
+| 2 | [Tokenization: how text becomes numbers](https://drvgautam.github.io/primer-on-aiengineering/tokenizer/) | [02-tokenizer.ipynb](code/notebooks/02-tokenizer.ipynb) | coming |
+| 3 | [Embeddings: giving every token a vector](https://drvgautam.github.io/primer-on-aiengineering/embeddings/) | [03-embeddings.ipynb](code/notebooks/03-embeddings.ipynb) | coming |
+| 4 | [Attention: letting tokens look at each other](https://drvgautam.github.io/primer-on-aiengineering/attention/) | [04-attention.ipynb](code/notebooks/04-attention.ipynb) | coming |
+| 5 | [The transformer: blocks, stacks and a model that works](https://drvgautam.github.io/primer-on-aiengineering/transformer/) | [05-transformer.ipynb](code/notebooks/05-transformer.ipynb) | coming |
+| 6 | [Next-token prediction: from probabilities to text](https://drvgautam.github.io/primer-on-aiengineering/next-token/) | [06-next-token.ipynb](code/notebooks/06-next-token.ipynb) | coming |
 
 **Part 2: Lifecycle**
 
-| # | Guide | Notebook |
-|---|---|---|
-| 7 | [Pre-training: learning from a mountain of text](https://drvgautam.github.io/primer-on-aiengineering/pretraining/) | [07-pretraining.ipynb](code/notebooks/07-pretraining.ipynb) |
-| 8 | [Fine-tuning: teaching a base model new behavior](https://drvgautam.github.io/primer-on-aiengineering/finetuning/) | [08-finetuning.ipynb](code/notebooks/08-finetuning.ipynb) |
+| # | Guide | Notebook | Slides |
+|---|---|---|---|
+| 7 | [Pre-training: learning from a mountain of text](https://drvgautam.github.io/primer-on-aiengineering/pretraining/) | [07-pretraining.ipynb](code/notebooks/07-pretraining.ipynb) | coming |
+| 8 | [Fine-tuning: teaching a base model new behavior](https://drvgautam.github.io/primer-on-aiengineering/finetuning/) | [08-finetuning.ipynb](code/notebooks/08-finetuning.ipynb) | coming |
 
 Coming next: alignment, inference and serving, tool use and agents, and retrieval-augmented
 generation (guides 9 to 12).

@@ -1,0 +1,225 @@
+% Beamer theme for the lecture slides of A Primer on AI Engineering.
+% Light, quiet, and in the site's colours (app/globals.css): ink on paper, one indigo accent.
+% Compile with LuaLaTeX (fontspec). See slides/README.md.
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{beamerthemeprimer}[2026/11/02 Primer lecture theme]
+
+\RequirePackage{fontspec}
+\RequirePackage{amsmath,amssymb}
+\RequirePackage{fancyvrb}
+\RequirePackage{xcolor}
+\RequirePackage{tikz}
+\RequirePackage{booktabs}
+\RequirePackage{array}
+% L{width}: a ragged-right paragraph column, so tables never hyphenate or stretch words
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\RequirePackage{graphicx}
+\usetikzlibrary{positioning,arrows.meta,calc}
+
+% ---------------------------------------------------------------- colours (site tokens)
+\definecolor{primerInk}{HTML}{1B1B1F}
+\definecolor{primerInkSoft}{HTML}{3D3D45}
+\definecolor{primerMuted}{HTML}{6B6B76}
+\definecolor{primerRule}{HTML}{E4E1D9}
+\definecolor{primerRuleStrong}{HTML}{CFCBC0}
+\definecolor{primerAccent}{HTML}{4338CA}
+\definecolor{primerAccentInk}{HTML}{3730A3}
+\definecolor{primerAccentSoft}{HTML}{EEF0FF}
+\definecolor{primerCodeBg}{HTML}{F6F5F1}
+\definecolor{primerGood}{HTML}{0F7B4A}
+\definecolor{primerWarn}{HTML}{B45309}
+
+\setbeamercolor{normal text}{fg=primerInk,bg=white}
+\setbeamercolor{structure}{fg=primerAccent}
+\setbeamercolor{alerted text}{fg=primerAccentInk}
+\setbeamercolor{frametitle}{fg=primerInk}
+\setbeamercolor{title}{fg=primerInk}
+\setbeamercolor{subtitle}{fg=primerMuted}
+\setbeamercolor{item}{fg=primerAccent}
+\setbeamercolor{footline}{fg=primerMuted}
+\setbeamercolor{block title}{fg=primerAccentInk,bg=primerAccentSoft}
+\setbeamercolor{block body}{fg=primerInk,bg=primerAccentSoft!45}
+
+% ---------------------------------------------------------------- fonts
+% Source Sans Pro for text and Source Code Pro for code:
+% all free, all in TeX Live. Maths in the serif font theme (Latin Modern) for readable formulas.
+\setsansfont{SourceSansPro}[
+  Extension=.otf, UprightFont=*-Regular, BoldFont=*-Semibold,
+  ItalicFont=*-RegularIt, BoldItalicFont=*-SemiboldIt]
+\setmonofont{SourceCodePro}[
+  Extension=.otf, UprightFont=*-Regular, BoldFont=*-Semibold,
+  ItalicFont=*-RegularIt, BoldItalicFont=*-SemiboldIt, Scale=0.92]
+\usefonttheme[onlymath]{serif}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{title}{size=\huge,series=\bfseries}
+\setbeamerfont{subtitle}{size=\large}
+\setbeamerfont{footline}{size=\scriptsize}
+\setbeamerfont{section kicker}{size=\scriptsize,series=\bfseries}
+
+% ---------------------------------------------------------------- page furniture
+\setbeamertemplate{navigation symbols}{}
+\setbeamersize{text margin left=10mm,text margin right=10mm}
+\setbeamertemplate{itemize item}{\textcolor{primerAccent}{\rule[0.32ex]{0.9ex}{0.9ex}}}
+\setbeamertemplate{itemize subitem}{\textcolor{primerMuted}{\rule[0.45ex]{0.8ex}{0.15ex}}}
+\setbeamertemplate{enumerate item}{\textcolor{primerAccent}{\bfseries\insertenumlabel.}}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+
+% Frame title: the section as a small accent kicker, then the title.
+\setbeamertemplate{frametitle}{%
+  \vspace*{2.5mm}%
+  \ifx\insertsection\@empty\else
+    {\usebeamerfont{section kicker}\color{primerAccent}\MakeUppercase{\insertsection}\par}\vspace{1mm}%
+  \fi
+  {\usebeamerfont{frametitle}\insertframetitle\par}%
+  \ifx\insertframesubtitle\@empty\else{\color{primerMuted}\small\insertframesubtitle\par}\fi
+  \vspace{-2mm}}
+
+% Footline: guide on the left, frame number on the right, a progress bar along the bottom.
+\newlength\primer@bar
+\setbeamertemplate{footline}{%
+  \usebeamerfont{footline}\usebeamercolor[fg]{footline}%
+  \hspace*{10mm}Guide \guidenum\ \textperiodcentered\ \guidetitle%
+  \hfill\insertframenumber\,/\,\inserttotalframenumber\hspace*{10mm}\par\vspace{2.2mm}%
+  \ifnum\inserttotalframenumber>1
+    \setlength\primer@bar{\dimexpr\paperwidth*\insertframenumber/\inserttotalframenumber\relax}%
+  \else\setlength\primer@bar{0pt}\fi
+  {\color{primerRule}\rule{\paperwidth}{0.6mm}}\par\vspace{-0.6mm}%
+  {\color{primerAccent}\rule{\primer@bar}{0.6mm}}}
+
+% Title page.
+\setbeamertemplate{title page}{%
+  \vfill
+  {\usebeamerfont{section kicker}\color{primerAccent}\MakeUppercase{\primertitle\ \textperiodcentered\ Part: \guidepart}\par}\vspace{3mm}
+  {\usebeamerfont{title}\usebeamercolor[fg]{title}\inserttitle\par}\vspace{2mm}
+  {\usebeamerfont{subtitle}\usebeamercolor[fg]{subtitle}\insertsubtitle\par}\vspace{8mm}
+  {\color{primerRule}\rule{0.55\textwidth}{0.4pt}}\par\vspace{3mm}
+  {\small\color{primerInkSoft}Lecture slides for Guide \guidenum\ \textperiodcentered\ version \primerversion\par}\vspace{1mm}
+  {\footnotesize\color{primerMuted}
+    Read: \href{\guideurl}{\nolinkurl{\guideurl}}\par
+    Run: \href{\notebookurl}{\texttt{code/notebooks/\notebookname}}
+    \ \textperiodcentered\ \href{\colaburl}{Open in Colab}\par}
+  \vfill
+  {\scriptsize\color{primerMuted}Text and figures CC BY 4.0, code MIT.
+    Every number and output on these slides comes from the guide and its notebook.\par}
+  \vspace{4mm}}
+
+% Section roadmap: at each guide section, the list of sections with this one highlighted.
+% The count of guide sections comes from the previous run's .aux (unnumbered wrap-up sections
+% don't count), which is one reason every deck is compiled twice.
+\newcounter{primersections}
+\providecommand\primer@nsections{?}
+\AtBeginSection[]{%
+  \stepcounter{primersections}%
+  \begin{frame}[noframenumbering,plain]
+    \vspace*{4mm}
+    {\usebeamerfont{section kicker}\color{primerAccent}SECTION \insertsectionnumber\ OF \primer@nsections\par}\vspace{1.5mm}
+    {\Large\bfseries\insertsectionhead\par}\vspace{4mm}
+    \begin{minipage}{0.9\textwidth}\footnotesize
+      \tableofcontents[currentsection,hideallsubsections,sectionstyle=show/shaded]
+    \end{minipage}
+  \end{frame}}
+\AtEndDocument{\immediate\write\@auxout{\gdef\string\primer@nsections{\the\c@primersections}}}
+\setbeamertemplate{section in toc}{%
+  {\color{primerMuted}\inserttocsectionnumber.}\ \inserttocsection\par\vspace{0.2mm}}
+\setbeamertemplate{section in toc shaded}[default][35]
+
+% ---------------------------------------------------------------- code and output
+% The generated snippets (tools/build_slide_assets.py) use these two environments. Each snippet
+% starts with \primerautosize{<size>}, the largest size at which it fits a full-width frame; a
+% frame that sets the code in a column can choose its own with \renewcommand\codesize{...}.
+\newcommand\codesize{}
+\newcommand\primercodefont{\footnotesize}
+\newcommand\primerautosize[1]{\ifx\codesize\@empty\def\primercodefont{#1}\else\let\primercodefont\codesize\fi}
+\input{generated/pygments.tex}
+\DefineVerbatimEnvironment{PrimerCode}{Verbatim}{%
+  commandchars=\\\{\},fontsize=\primercodefont,frame=leftline,framerule=0.6mm,
+  rulecolor=\color{primerAccent!35},framesep=2.5mm,xleftmargin=3mm}
+\DefineVerbatimEnvironment{PrimerOut}{Verbatim}{%
+  fontsize=\primercodefont,frame=leftline,framerule=0.6mm,rulecolor=\color{primerGood!45},
+  framesep=2.5mm,xleftmargin=3mm,formatcom=\color{primerInkSoft}}
+
+\newcommand\primergen{generated/\guidename}
+% \primercode{L}: the guide's Python block at line L, exactly as printed.
+\newcommand\primercode[1]{\input{\primergen/code-L#1.tex}}
+% \primeroutput{L}: the output the guide prints after that block, labelled.
+\newcommand\primeroutput[1]{%
+  \par\vspace{1mm}{\scriptsize\color{primerGood}\bfseries OUTPUT\par}\vspace{-1mm}%
+  \input{\primergen/out-L#1.tex}}
+% \primercell{L}: the notebook's In [k] for the block at guide line L.
+\newcommand\primercell[1]{%
+  \ifcsname primercell@#1\endcsname\csname primercell@#1\endcsname\else
+    \PackageError{beamerthemeprimer}{No notebook cell for guide line #1}{Re-run tools/build_slide_assets.py}\fi}
+% \cellnote{L}: where to run it.
+\newcommand\cellnote[1]{%
+  {\scriptsize\color{primerMuted}\href{\colaburl}{Notebook \notebookname, cell In [\primercell{#1}]}
+    \ \textperiodcentered\ guide line #1\par}}
+
+% ---------------------------------------------------------------- figures
+% \primerfigure[height]{k}: the guide's Figure k, every step as an overlay (tools/export-figures.mjs).
+\newlength\primerfigheight
+\newcommand\primerfigstep[2]{%
+  \begin{center}
+    \includegraphics[height=\primerfigheight,width=\linewidth,keepaspectratio]{generated/#1}\par
+    \ifx\relax#2\relax\else{\scriptsize\color{primerMuted}#2\par}\fi
+  \end{center}}
+\newcommand\primerfigure[2][0.62\textheight]{%
+  \setlength\primerfigheight{#1}%
+  \input{\primergen/fig-#2.tex}}
+% \primerfigonly[height]{k}{s}: one step of Figure k, without overlays (for frames that build
+% their own overlays beside it).
+\newcommand\primerfigonly[3][0.62\textheight]{%
+  \setlength\primerfigheight{#1}%
+  \primerfigstep{\guidename/fig-#2-step-#3.pdf}{}}
+\newcommand\figcredit[1]{{\scriptsize\color{primerMuted}Figure #1 of the guide\par}}
+
+% ---------------------------------------------------------------- series map
+% The twelve guides in two rows of six, this one filled, unreleased ones dashed
+% (generated/series.tex lists them).
+\input{generated/series.tex}
+\newcommand\primerseriesmap{%
+  \begin{tikzpicture}[x=0.142\textwidth,y=-1.25cm,
+      g/.style={draw=primerRuleStrong,rounded corners=2pt,minimum width=0.134\textwidth,
+        minimum height=0.95cm,align=center,font=\scriptsize,text width=0.12\textwidth}]
+    \foreach \n/\t/\r [count=\i from 0] in \primerserieslist {
+      \pgfmathtruncatemacro\col{mod(\i,6)}\pgfmathtruncatemacro\row{\i/6}
+      \ifnum\n=\guidenum
+        \node[g,fill=primerAccent,draw=primerAccent,text=white,font=\scriptsize\bfseries] at (\col,\row) {\n\\\t};
+      \else\ifnum\r=1
+        \node[g,text=primerInk] at (\col,\row) {\n\\\t};
+      \else
+        \node[g,dashed,text=primerMuted] at (\col,\row) {\n\\\t};
+      \fi\fi}
+    \node[font=\scriptsize\bfseries,text=primerAccent,anchor=east] at (-0.5,0) {PART 1};
+    \node[font=\scriptsize\bfseries,text=primerAccent,anchor=east] at (-0.5,1) {PART 2};
+  \end{tikzpicture}}
+
+% ---------------------------------------------------------------- teaching furniture
+% \term{...}: a term the guide defines, set as it is bolded there; tools/check_slides.py checks
+% each one against the glossary.
+\newcommand\term[1]{\textbf{\color{primerAccentInk}#1}}
+% \free{...}: wording whose numbers aren't the guide's (exercise settings); skipped by the
+% number check.
+\newcommand\free[1]{#1}
+% \recall{k}{text}: a reminder of an earlier guide.
+\newcommand\recall[2]{{\color{primerMuted}\small Recall (Guide #1):} #2}
+
+% Key idea: a soft accent panel.
+\newenvironment{keyidea}[1][Key idea]{%
+  \par\vspace{1mm}\begin{beamercolorbox}[rounded=true,sep=2.5mm,wd=\linewidth]{block body}%
+  {\scriptsize\bfseries\color{primerAccentInk}\MakeUppercase{#1}\par}\vspace{0.5mm}}
+  {\end{beamercolorbox}\par}
+
+% \checkq{question}{answer}: check your understanding; the answer appears on the next overlay
+% (and in the handout).
+\newcommand\checkq[2]{%
+  \begin{beamercolorbox}[rounded=true,sep=2.5mm,wd=\linewidth]{block body}
+    {\scriptsize\bfseries\color{primerAccentInk}CHECK YOUR UNDERSTANDING\par}\vspace{0.8mm}
+    #1\par
+  \end{beamercolorbox}\par\vspace{2mm}
+  \uncover<2-| handout:1>{%
+    {\scriptsize\bfseries\color{primerGood}ANSWER\par}\vspace{0.5mm}#2\par}}
+
+% Simplification row: what the toy does, what an LLM does, and where the series repays it.
+\newcommand\simplification[3]{#1 & #2 & #3\\}
+
+\endinput

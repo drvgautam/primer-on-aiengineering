@@ -7,7 +7,8 @@
     "build": "next build",
     "postbuild": "node tools/build-search-index.mjs",
     "serve": "npx serve out -l 3000",
-    "pdf": "node book/build-pdf.mjs"
+    "pdf": "node book/build-pdf.mjs",
+    "slides": "node tools/build-slides.mjs"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.0",
@@ -32,5 +33,5 @@
     "pdf-lib": "^1.17.1",
     "playwright": "^1.57.0"
   },
-  "version": "0.3.1"
+  "version": "0.4.0"
 }

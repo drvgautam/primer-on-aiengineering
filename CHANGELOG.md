@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 (2026-11-02)
+
+Lecture slides, starting with Guide 1:
+
+- `slides/`: a LaTeX Beamer deck per guide, built with LuaLaTeX in a pinned TeX Live 2025 image, as a lecture PDF (with step-by-step builds) and a handout. The first deck is Guide 1, neural networks: the guide's eight sections in order, with learning objectives, worked examples, every figure step, every code block with its output and notebook cell, a check for understanding per section, what was simplified, a summary, notebook exercises and further reading
+- Code, outputs, notebook cell numbers and figures on the slides are generated from the guide, its notebook and the site, never typed (`tools/build_slide_assets.py`, `tools/export-figures.mjs`). `tools/check_slides.py` checks each deck against its guide in CI: sections, figures, code, numbers, glossary terms and a clean LaTeX log
+- The slides are on the site (`/slides/`), linked from the guide page and from a new Slides column in the README's guide tables, and attached to the release
+- The book workflow builds and checks the slides too, and attaches the book and the slides to a release in one step
+
 ## 0.3.1 (2026-10-30)
 
 - Guide 8: editorial fixes from a further Consistency review, made after Guide 7's later edits (pre-training's step count stated against Guide 7's, acronyms expanded or removed, "sub-word"); no printed number changed

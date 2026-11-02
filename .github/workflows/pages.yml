@@ -34,6 +34,15 @@ jobs:
       - run: node book/build-pdf.mjs --out out/primer-on-aiengineering.pdf
         env:
           PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+      # The lecture slides too, at out/slides/, linked from the guide pages and the README.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install pygments==2.21.0
+      - run: node tools/build-slides.mjs
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+      - run: mkdir -p out/slides && cp dist/slides/*.pdf out/slides/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out

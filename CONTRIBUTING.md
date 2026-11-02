@@ -45,10 +45,13 @@ syncs them back. You'll be credited in the changelog either way.
 3. Run `python3 tools/sync_from_authoring.py ../llm-guides`. It refuses to sync a guide whose
    code doesn't pass in the authoring workspace.
 4. Run `python tools/build_notebooks.py && python tools/verify_notebooks.py --write`.
-5. Update the guide table in `README.md`, the guide dropdown in
+5. If the guide has a lecture deck (`slides/decks/NN-<slug>.tex`), run
+   `node tools/build-slides.mjs <slug> && python tools/check_slides.py <slug>`; see
+   `slides/README.md`.
+6. Update the guide table in `README.md` (its Slides column too), the guide dropdown in
    `.github/ISSUE_TEMPLATE/erratum.yml`, and `CHANGELOG.md`. Bump `version` in `release.json`
    and `package.json`.
-6. Tag `vX.Y.Z`. CI builds the PDF and attaches it to the release.
+7. Tag `vX.Y.Z`. CI builds the PDF book and the slides and attaches them to the release.
 
 ## Code of conduct
 

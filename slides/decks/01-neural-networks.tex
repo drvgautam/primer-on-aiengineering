@@ -1,0 +1,936 @@
+% Lecture slides for Guide 1, "Neural networks: a function with knobs".
+% Written from content/01-neural-networks.mdx. Code, outputs, figures and notebook cell numbers
+% are generated (tools/build_slide_assets.py, tools/export-figures.mjs); every other number
+% must appear in the guide, which tools/check_slides.py checks. Build: node tools/build-slides.mjs
+\providecommand\primeropts{}
+\documentclass[aspectratio=169,11pt,t,\primeropts]{beamer}
+\def\guidename{01-neural-networks}
+\input{generated/01-neural-networks/meta.tex}
+\input{generated/01-neural-networks/cells.tex}
+\usetheme{primer}
+
+\title{Neural networks}
+\subtitle{A function with knobs}
+
+\begin{document}
+
+% ======================================================================== opening
+\begin{frame}[plain,noframenumbering]
+  \titlepage
+\end{frame}
+
+\begin{frame}{Where we are}
+  \begin{center}\primerseriesmap\end{center}
+  \vspace{2mm}
+  \begin{itemize}
+    \item Part 1 takes a language model apart, one piece at a time. This is the first guide: no
+      earlier guide is assumed.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{One recipe for the whole series}
+  When you call an LLM (large language model) API, your text goes into a function and a reply
+  comes out. That function's behavior is set by billions of numbers, and nobody wrote any of
+  them by hand.
+  \vspace{4mm}
+  \begin{columns}[T]
+    \column{0.31\textwidth}
+    \begin{keyidea}[1 \textperiodcentered\ a function]
+      with adjustable numbers
+    \end{keyidea}
+    \column{0.31\textwidth}
+    \begin{keyidea}[2 \textperiodcentered\ a loss]
+      one number that says how wrong the function currently is
+    \end{keyidea}
+    \column{0.31\textwidth}
+    \begin{keyidea}[3 \textperiodcentered\ a procedure]
+      that adjusts the first to shrink the second
+    \end{keyidea}
+  \end{columns}
+  \vspace{4mm}
+  Every later guide plugs different parts into this recipe. An LLM is trained with the same loop
+  you'll write today.
+\end{frame}
+
+\begin{frame}{Learning objectives}
+  By the end of this lecture you'll be able to:
+  \begin{enumerate}
+    \item \textbf{compute} a neuron's output on paper;
+    \item \textbf{follow} an input through a two-layer network, shape by shape;
+    \item \textbf{explain} how softmax turns scores into probabilities, and how cross-entropy
+      turns them into one loss;
+    \item \textbf{work out} a gradient with a calculator, by the nudge test and by
+      backpropagation;
+    \item \textbf{read} a short numpy training loop and \textbf{predict} how its error falls
+      before you run it.
+  \end{enumerate}
+\end{frame}
+
+% ======================================================================== section 1
+\section{A network is a function with knobs}
+
+\begin{frame}{Parameters and neurons}
+  \begin{itemize}
+    \item Each of those billions of numbers is a \term{parameter}: a knob whose setting changes
+      what the function computes. We write $\theta$ for all of them together.
+    \item A trained function of this kind is a model; in this guide the model is always a neural
+      network. \textbf{Training} is the search for good settings.
+    \item The smallest unit is a \term{neuron}:
+      \begin{itemize}
+        \item multiply each input by its own \term{weight},
+        \item add up the results, then add one more number, the \term{bias},
+        \item pass the sum through an \term{activation function}, a fixed rule applied to the
+          single number.
+      \end{itemize}
+    \item Our activation throughout is \term{ReLU}, the rectified linear unit: $\max(0,\cdot)$.
+      A positive number passes through, a negative one becomes zero
+      (popularized for deep networks by Nair \& Hinton, 2010).
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Worked example: one neuron}
+  Input $x = [2, -1]$, weights $w = [1.5, 0.5]$, bias $b = 0.25$.
+  \primerfigure[0.5\textheight]{1}
+  \vspace{-2mm}
+  \[
+    \uncover<2->{\text{sum} = 2 \cdot 1.5 + (-1) \cdot 0.5 + 0.25}\uncover<3->{\, = 2.75}
+    \uncover<4->{\qquad\longrightarrow\qquad \text{output} = \max(0,\, 2.75) = 2.75}
+  \]
+  \uncover<4->{\begin{center}\small The sum is positive, so ReLU passes it through unchanged.
+    \quad{\color{primerMuted}(Figure 1 of the guide)}\end{center}}
+\end{frame}
+
+\begin{frame}{A second neuron, and the off switch}
+  A second neuron reads the same input $x = [2, -1]$ with weights $[-1, 1]$ and bias $0$:
+  \[
+    \uncover<2->{(-1)\cdot 2 + 1\cdot(-1) + 0 = -2 - 1 = -3}
+    \uncover<3->{\quad\longrightarrow\quad \max(0, -3) = 0}
+  \]
+  \uncover<3->{For this input the second neuron is \textbf{switched off}. The next section
+  shows why that off switch is what makes stacking neurons worthwhile.}
+  \vspace{4mm}
+  \uncover<4->{%
+  \begin{keyidea}[A name, not a mechanism]
+    ``Neuron'' is borrowed from early mathematical models of brain cells. Nothing here depends
+    on how brains work: a neuron in this series is a weighted sum followed by a simple fixed
+    function, and nothing more.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{Feed the input $x = [-1, 2]$ to both neurons (weights $[1.5, 0.5]$, bias $0.25$; and
+    weights $[-1, 1]$, bias $0$). What does each output? Which numbers could training change?}
+  {First: $(-1) \cdot 1.5 + 2 \cdot 0.5 + 0.25 = -0.25$, so ReLU outputs $0$. Second:
+    $(-1)(-1) + 2 \cdot 1 + 0 = 3$, output $3$. Now the first neuron is off and the second on.
+    Training changes the weights and biases; the input is data and ReLU is a fixed rule.}
+\end{frame}
+
+% ======================================================================== section 2
+\section{Layers, and why the bend matters}
+
+\begin{frame}{A layer is one matrix multiply}
+  A \term{layer} is many neurons reading the same input. Give each neuron's weights their own
+  \emph{column} of $W$ and line the biases up in a row $b$:
+  \[ h = \sigma(xW + b) \]
+  \begin{itemize}
+    \item $x$: a row of $d_{\text{in}}$ numbers; $W$: $d_{\text{in}} \times d_{\text{out}}$;
+      $b$ and $h$: rows of $d_{\text{out}}$ numbers, one per neuron.
+    \item $\sigma$ is the activation, applied to each number separately.
+    \item Inputs are rows and matrices multiply on the right, a convention the whole series keeps.
+  \end{itemize}
+  \pause
+  Our two neurons are one layer:
+  \[
+    W = \begin{bmatrix} 1.5 & -1 \\ 0.5 & 1 \end{bmatrix},\quad b = [0.25, 0],\quad
+    x = [2, -1] \;\Rightarrow\; h = [2.75, 0]
+  \]
+
+\end{frame}
+
+\begin{frame}{Stacking layers: a network}
+  Feed one layer's output into a second layer:
+  \[
+    h = \sigma\big(xW^{(1)} + b^{(1)}\big), \qquad \hat{y} = h W^{(2)} + b^{(2)}
+  \]
+  \begin{itemize}
+    \item Superscripts number the layers; $\hat{y}$ is the network's output.
+    \item The \textbf{output layer} is the same weighted sums with the activation left off, so
+      its outputs can be any real numbers.
+    \item A layer between input and output, like the first one here, is a \textbf{hidden layer}.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Why does the network need \texorpdfstring{$\sigma$}{the activation} at all?}
+  Take $\sigma$ away and set the biases aside:
+  \[
+    \hat{y} = x W^{(1)} W^{(2)} \uncover<2->{= x\big(W^{(1)} W^{(2)}\big)}
+  \]
+  \uncover<3->{%
+  Say the network reads 2 numbers, its first layer has 3 neurons and its second has 2:
+  \[
+    \underbrace{W^{(1)}}_{2 \times 3}\;\underbrace{W^{(2)}}_{3 \times 2}
+    \;=\; \underbrace{\text{one matrix}}_{2 \times 2}
+  \]}
+  \uncover<4->{%
+  \begin{itemize}
+    \item Two layers without an activation compute exactly what one layer could.
+    \item The same goes for a hundred of them.
+    \item Putting the biases back only adds one combined bias to that single layer.
+  \end{itemize}}
+\end{frame}
+
+\begin{frame}{ReLU breaks the collapse}
+  \begin{columns}[c]
+    \column{0.36\textwidth}
+    \begin{center}
+    \begin{tikzpicture}[scale=0.8]
+      \draw[primerRuleStrong,->] (-2.2,0) -- (2.4,0) node[right,primerMuted,font=\scriptsize] {input};
+      \draw[primerRuleStrong,->] (0,-0.4) -- (0,2.4) node[above,primerMuted,font=\scriptsize] {ReLU};
+      \draw[primerAccent,line width=1.4pt] (-2,0) -- (0,0) -- (2.2,2.2);
+      \fill[primerAccent] (0,0) circle (2.2pt);
+      \node[font=\scriptsize,primerInk,anchor=north west] at (0.08,-0.05) {the bend};
+    \end{tikzpicture}
+    \end{center}
+    \column{0.62\textwidth}
+    \small
+    \begin{itemize}
+      \item A switched-off neuron contributes nothing, as if its column of $W$ were zeros: for
+        any one input the layer acts like a single matrix plus a bias.
+      \item<2-> \textbf{Which} matrix depends on the input:
+        \begin{itemize}
+          \item $x = [2, -1]$: sums $2.75$, $-3$; second off.
+          \item $x = [-1, 2]$: sums $-0.25$, $3$; first off.
+        \end{itemize}
+      \item<3-> No fixed matrix behaves that way.
+    \end{itemize}
+  \end{columns}
+  \uncover<4->{%
+  \begin{keyidea}
+    Each layer picks its matrix by which neurons are on: one straight-line piece per on/off
+    pattern, stitched together. Far more than one matrix can represent.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{How much can a network represent?}
+  \begin{itemize}
+    \item \textbf{Universal approximation theorem.} A network with a single hidden layer can
+      approximate any continuous function on a closed, bounded region as closely as you like,
+      given enough neurons (Cybenko, 1989; Hornik, Stinchcombe \& White, 1989).
+    \item The original proofs covered S-shaped activations; Leshno et al.\ (1993) extended the
+      result to any activation that isn't a polynomial, which includes ReLU.
+  \end{itemize}
+  \pause
+  \begin{keyidea}[Read the theorem carefully]
+    It only says that a good setting of the parameters \emph{exists}. It doesn't say how many
+    neurons you need, and it doesn't say that training will find those parameters.
+    ``Can represent'' is a much weaker promise than ``can learn.''
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{A network reads 2 numbers, has a first layer of 3 neurons and a second of 2, and no
+    activation anywhere. What single layer computes the same function?}
+  {One layer with the $2 \times 2$ matrix $W^{(1)}W^{(2)}$ and one combined bias. Without the
+    bend, depth adds nothing: the product of matrices is a matrix.}
+\end{frame}
+
+% ======================================================================== section 3
+\section{The forward pass in shapes}
+
+\begin{frame}{The task for the rest of the guide}
+  Running an input through the layers to get an output is the \term{forward pass}. To follow
+  one we need a problem:
+  \begin{keyidea}[Task]
+    Predict the next character of a text from the current character alone. The text uses 27
+    characters: the space and the letters a to z.
+  \end{keyidea}
+  \vspace{2mm}
+  Two declared simplifications, repaid later in the series:
+  \begin{itemize}
+    \item \textbf{One character of context.} An LLM takes into account all the earlier text it's
+      given, up to a fixed limit (Guide 4).
+    \item \textbf{One-hot input.} Each character becomes a row of 27 numbers, all zeros except a
+      single 1 in its slot, a \term{one-hot vector}. LLMs feed in learned vectors instead
+      (Guide 3).
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Shapes, step by step}
+  \vspace{-3mm}
+  \primerfigure[0.69\textheight]{2}
+  \vspace{-3mm}
+  \begin{center}\footnotesize\color{primerMuted}
+    16 hidden ReLU neurons: an arbitrary choice, plenty for this text \textperiodcentered\ Figure 2
+    of the guide
+  \end{center}
+\end{frame}
+
+\begin{frame}{Counting the parameters}
+  Two weight matrices and two bias rows:
+  \[
+    \underbrace{27 \cdot 16}_{W^{(1)}} + \underbrace{16}_{b^{(1)}}
+    + \underbrace{16 \cdot 27}_{W^{(2)}} + \underbrace{27}_{b^{(2)}}
+    \uncover<2->{\;=\; 907}
+  \]
+  \uncover<3->{An LLM has billions as of October 2026; Guide 7 looks at what that scale costs.}
+  \vspace{5mm}
+  \uncover<4->{%
+  \begin{keyidea}[Many inputs at once]
+    Stack $n$ one-hot rows into an $n \times 27$ matrix, run the same two multiplies, and you get
+    an $n \times 27$ matrix of scores, one row per input. Each row is computed independently,
+    which is why the code later never loops over examples.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{For a batch of $n$ characters, what are the shapes of the input, the hidden matrix
+    and the scores? Which of them depend on $n$?}
+  {Input $n \times 27$, hidden $n \times 16$, scores $n \times 27$: only the number of rows
+    depends on $n$. The parameters ($27 \times 16$, $16$, $16 \times 27$, $27$) don't change,
+    so the same 907 numbers serve every example.}
+\end{frame}
+
+% ======================================================================== section 4
+\section{Measuring wrongness: softmax and cross-entropy}
+
+\begin{frame}{From scores to probabilities: softmax}
+  Scores that feed a softmax are \term{logits}, written $z$; they can be any real numbers. To
+  read them as probabilities they must be positive and sum to 1.
+  \[ p_i = \frac{e^{z_i}}{\sum_j e^{z_j}} \]
+  \pause
+  Worked example, logits $[2, 1, 0]$:
+  \[ e^2 = 7.389,\ e^1 = 2.718,\ e^0 = 1 \ \Rightarrow\ \text{sum } 11.107
+    \uncover<3->{\ \Rightarrow\ p = [0.665, 0.245, 0.090]} \]
+  \vspace{-2mm}
+  \uncover<4->{%
+  \begin{keyidea}
+    Logits one apart, each probability $e \approx 2.718$ times the next: softmax turns
+    \emph{differences} between logits into \emph{ratios} between probabilities.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{The network never outputs a character}
+  \begin{itemize}
+    \item It outputs a probability for every character: together, a \textbf{probability
+      distribution} over the 27 options.
+    \item Anything that looks like a single prediction is a \emph{choice} made afterwards from
+      those 27 numbers.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{One number for ``how wrong'': cross-entropy}
+  \begin{columns}[T]
+    \column{0.56\textwidth}
+    A \term{loss} $\mathcal{L}$ is large when the network is badly wrong and small when it's
+    nearly right: zero when the correct answer gets probability 1, growing without limit as that
+    probability approaches zero.
+    \[ \mathcal{L} = -\ln p_y \]
+    \term{Cross-entropy}: the negative natural log of the probability given to the correct
+    answer $y$.
+    \begin{itemize}
+      \item<2-> First option correct: $-\ln 0.665 = 0.408$.
+      \item<3-> Probability 1: $-\ln 1 = 0$.
+      \item<3-> Probability $0.01$: $4.6$.
+    \end{itemize}
+    \column{0.42\textwidth}
+    \begin{center}
+    \begin{tikzpicture}[x=4cm,y=0.62cm]
+      \draw[primerRuleStrong,->] (0,0) -- (1.08,0) node[right,font=\scriptsize,primerMuted] {$p_y$};
+      \draw[primerRuleStrong,->] (0,0) -- (0,5.3) node[above,font=\scriptsize,primerMuted] {$-\ln p_y$};
+      \draw[primerAccent,line width=1.2pt,domain=0.0075:1,samples=120,smooth] plot (\x,{-ln(\x)});
+      \node[font=\scriptsize,primerMuted,below] at (1,0) {1};
+      \node[font=\scriptsize,primerMuted,below] at (0,0) {0};
+      \only<2->{\fill[primerInk] (0.665,0.408) circle (1.6pt) node[above right,font=\scriptsize] {$0.408$};}
+      \only<3->{\fill[primerInk] (0.01,4.6) circle (1.6pt) node[right,font=\scriptsize] {$4.6$};}
+    \end{tikzpicture}
+    \end{center}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{The baseline every run starts from}
+  A network with no information spreads its probability evenly: $1/27$ each, so
+  \[ \mathcal{L} = -\ln(1/27) = \ln 27 \approx 3.30 \]
+  \begin{itemize}
+    \item Our toy network starts almost exactly there: small random weights give logits close
+      to zero, and equal logits mean equal probabilities.
+    \item Any loss below $3.30$ means the network has learned something about the text.
+    \item An \textbf{example} is one current character paired with the character that follows
+      it. The loss we train on is the average over all examples.
+    \item An LLM's last step is this same softmax, run over its whole \textbf{vocabulary}, the set
+      of tokens it can output. For now think of a token as roughly a word: Guide 2 refines
+      that, and Guide 6 builds on the softmax.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{The network gives probabilities $[0.665, 0.245, 0.090]$ and the first option is
+    correct. What is the loss? And why is $\ln 27$ the natural reference value for our task?}
+  {$-\ln 0.665 = 0.408$. A network that knows nothing gives each of the 27 characters
+    probability $1/27$, whose loss is $\ln 27 \approx 3.30$; anything lower is evidence of
+    learning.}
+\end{frame}
+
+% ======================================================================== section 5
+\section{Learning is walking downhill, precisely}
+
+\begin{frame}{One knob, by hand: the nudge test}
+  Which way should each of the 907 knobs move? Start with one knob and
+  $\mathcal{L}(\theta) = (\theta - 3)^2$.
+  \begin{align*}
+    \theta = 0 &: \quad \mathcal{L} = 9\\
+    \uncover<2->{\theta = 0.01 &: \quad \mathcal{L} = 2.99^2 = 8.9401}
+  \end{align*}
+  \uncover<3->{A drop of about $0.06$ for a nudge of $0.01$: the loss changes about $-6$ times as
+  fast as the knob.}
+  \vspace{3mm}
+  \uncover<4->{%
+  \begin{itemize}
+    \item That ratio is the slope. The \term{gradient} is that slope, measured with a nudge small
+      enough that the ratio stops depending on its size.
+    \item For this loss the slope at any $\theta$ is $2(\theta - 3)$.
+    \item Many knobs: one slope per knob, each measured with the others fixed, written
+      $\nabla_\theta \mathcal{L}$.
+  \end{itemize}}
+\end{frame}
+
+\begin{frame}{Gradient descent}
+  Move each knob against the sign of its slope, further when the slope is steeper:
+  \[ \theta \leftarrow \theta - \eta \, \nabla_\theta \mathcal{L} \]
+  \term{Gradient descent}; the multiplier $\eta$ is the \term{learning rate}.
+  \pause
+  \vspace{1mm}
+  With $\eta = 0.1$, starting at $\theta = 0$:
+  \begin{align*}
+    \text{step 1:}\quad & 0 - 0.1 \cdot (-6) = 0.6\\
+    \uncover<3->{\text{step 2:}\quad & \text{slope } 2(0.6 - 3) = -4.8 \;\Rightarrow\; \theta = 1.08}
+  \end{align*}
+  \uncover<4->{Every step ends closer to $3$, and the steps shrink as the slope flattens.}
+  \uncover<5->{%
+  \begin{keyidea}[No guarantee in general]
+    Gradient descent reaches the best setting here only because this loss is bowl-shaped. For a
+    network, a small enough step lowers the loss a little, but the walk can end anywhere the
+    slope has gone flat.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{Two knobs: walking downhill, literally}
+  \begin{columns}[T]
+    \column{0.29\textwidth}
+    \footnotesize
+    Loss $\theta_1^2 + 4\theta_2^2$, $\eta = 0.1$; slopes $2\theta_1$ and $8\theta_2$.
+    \begin{itemize}
+      \item Start $(4, 1.5)$: slopes $8$ and $12$.
+      \item First step: $(4 - 0.8,\; 1.5 - 1.2)$ $= (3.2, 0.3)$.
+      \item Loss $25 \to 10.6$.
+    \end{itemize}
+    Dashed: the gradient, pointing uphill, crossing contours at a right angle. Solid: the
+    update, the opposite way.
+    \vspace{2mm}
+
+    {\color{primerMuted}Figure 3 of the guide}
+    \column{0.69\textwidth}
+    \vspace{-5mm}
+    \primerfigure[0.76\textheight]{3}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{The length of the stride}
+  Read as a direction, the list of slopes points where the loss rises fastest (used without
+  proof). The update steps the opposite way, and $\eta$ sets the length of the stride.
+  \vspace{2mm}
+  \begin{columns}[T]
+    \column{0.31\textwidth}
+    \begin{keyidea}[Too long]
+      $\eta = 1.1$: the first step from $0$ lands on $6.6$, further from $3$ than where it
+      started.
+    \end{keyidea}
+    \column{0.31\textwidth}
+    \begin{keyidea}[Too short]
+      $\eta = 0.001$: the first step only reaches $0.006$. It crawls.
+    \end{keyidea}
+    \column{0.31\textwidth}
+    \begin{keyidea}[Bounces forever]
+      $\eta = 1$ on this loss bounces between $0$ and $6$ forever.
+    \end{keyidea}
+  \end{columns}
+  \vspace{3mm}
+
+  {\small\color{primerMuted}Declared simplification: every step here measures the loss on the
+  whole dataset. Real training uses a small random sample per step and more elaborate update
+  rules (Guide 7).}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{On $\mathcal{L}(\theta) = (\theta - 3)^2$: what is the gradient at $\theta = 0.6$?
+    With $\eta = 0.1$, where does the next step land, and why are the steps getting shorter?}
+  {$2(0.6 - 3) = -4.8$, so $\theta \leftarrow 0.6 - 0.1 \cdot (-4.8) = 1.08$. Each step is
+    $\eta$ times the slope, and the slope shrinks as $\theta$ approaches $3$: $-6$, then
+    $-4.8$.}
+\end{frame}
+
+% ======================================================================== section 6
+\section{Backpropagation: the chain rule, run backward}
+
+\begin{frame}{Why we need something better than nudging}
+  \begin{itemize}
+    \item The nudge test gives one slope per extra forward pass: 907 extra passes for every step.
+    \item \term{Backpropagation} gets all of them for about the cost of one more pass.
+    \item It rests on the \term{chain rule}: rates along a chain multiply.
+  \end{itemize}
+  \vspace{3mm}
+  \begin{center}
+  \begin{tikzpicture}[node distance=2.6cm,
+      q/.style={draw=primerRuleStrong,rounded corners=2pt,minimum width=1.6cm,minimum height=0.8cm,font=\small}]
+    \node[q] (a) {first};
+    \node[q,right=of a] (b) {second};
+    \node[q,right=of b] (c) {third};
+    \draw[-{Stealth},primerInk] (a) -- node[above,font=\small] {rate 2} (b);
+    \draw[-{Stealth},primerInk] (b) -- node[above,font=\small] {rate 3} (c);
+    \draw[-{Stealth},primerAccent,line width=1pt] (a.south) to[bend right=18] node[below,font=\small] {rate $2 \times 3 = 6$} (c.south);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{A network small enough for paper: forward}
+  Input $x = 1$; weights $w_1 = 2$, $w_2 = 0.5$; correct answer $y = 2$.
+  \vspace{-2mm}
+  \[ h = \text{ReLU}(w_1 x), \qquad \hat{y} = w_2 h, \qquad
+    \mathcal{L} = \tfrac{1}{2}(\hat{y} - y)^2 \]
+  \vspace{-4mm}
+  \primerfigonly[0.56\textheight]{4}{1}
+  \vspace{-3mm}
+  \[
+    \uncover<2->{h = \text{ReLU}(2 \cdot 1) = 2}\qquad
+    \uncover<3->{\hat{y} = 0.5 \cdot 2 = 1}\qquad
+    \uncover<4->{\mathcal{L} = \tfrac{1}{2}(1 - 2)^2 = 0.5}
+  \]
+  {\footnotesize\color{primerMuted}Figure 4 of the guide, forward view.\par}
+\end{frame}
+
+\begin{frame}{The backward pass, one rate at a time}
+  Start at the loss and work toward the input. $\partial\mathcal{L}/\partial w$ is the slope of
+  the loss with respect to $w$, everything else fixed. (Squared error only keeps the arithmetic
+  small; the steps are the same for cross-entropy.)
+  \vspace{2mm}
+  \begin{enumerate}
+    \item<1-> \textbf{Output.} The slope of $\tfrac{1}{2}(\hat{y} - y)^2$ is $\hat{y} - y$ (the
+      $\tfrac{1}{2}$ cancels the 2): $\partial\mathcal{L}/\partial\hat{y} = 1 - 2 = -1$.
+    \item<2-> \textbf{Second weight.} Since $\hat{y} = w_2 h$, nudging $w_2$ moves $\hat{y}$ at rate $h = 2$:
+      $\partial\mathcal{L}/\partial w_2 = -1 \cdot 2 = -2$.
+    \item<3-> \textbf{Hidden value.} $\hat{y}$ moves with $h$ at rate $w_2 = 0.5$:
+      $\partial\mathcal{L}/\partial h = -1 \cdot 0.5 = -0.5$.
+    \item<4-> \textbf{ReLU.} Its input, $w_1 x = 2$, is positive: rate 1, so the slope is still
+      $-0.5$.
+    \item<5-> \textbf{First weight.} Nudging $w_1$ moves ReLU's input, $w_1 x$, at rate $x = 1$:
+      $\partial\mathcal{L}/\partial w_1 = -0.5 \cdot 1 = -0.5$.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{The backward pass, drawn}
+  \vspace{-2mm}
+  \primerfigonly[0.68\textheight]{4}{2}
+  \vspace{-3mm}
+  \begin{center}\small
+    Gradients flow right to left: $-1$ at the output, $-2$ for $w_2$, $-0.5$ at $h$, $-0.5$ for
+    $w_1$. {\color{primerMuted}(Figure 4 of the guide, backward view)}
+  \end{center}
+\end{frame}
+
+\begin{frame}{One step of gradient descent, and the payoff}
+  With $\eta = 0.1$:
+  \begin{align*}
+    w_2 &= 0.5 - 0.1 \cdot (-2) = 0.7 & w_1 &= 2 - 0.1 \cdot (-0.5) = 2.05
+  \end{align*}
+  \pause
+  Forward again:
+  \[
+    h = \text{ReLU}(2.05 \cdot 1) = 2.05, \quad \hat{y} = 0.7 \cdot 2.05 = 1.435, \quad
+    \mathcal{L} = \tfrac{1}{2}(1.435 - 2)^2 \approx 0.160
+  \]
+  \pause
+  \begin{keyidea}
+    The loss fell from $0.5$ to $0.160$ in one step, using the two gradients backpropagation
+    gave us.
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{Why one backward pass costs about one forward pass}
+  The backward pass reused two things:
+  \begin{itemize}
+    \item \textbf{Forward values.} Step 2 needed $h$, which the forward pass had already
+      computed, so a real implementation keeps the forward values around.
+    \item \textbf{Shared slopes.} Step 4 started from $\partial\mathcal{L}/\partial h$, computed
+      once in step 3, and step 5 built on step 4. In a deeper network every weight earlier than
+      $h$ would start from that same number.
+  \end{itemize}
+  \vspace{2mm}
+  \begin{keyidea}
+    Each intermediate slope is computed once and shared by everything upstream of it. That
+    sharing is why one backward pass costs about as much as one forward pass, however many
+    parameters there are.
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{Two results that carry over to the 907-parameter network}
+  \begin{enumerate}
+    \item \textbf{ReLU gates the gradient.} Its rate is 1 where its input was positive and 0
+      where it wasn't: a switched-off neuron sends no gradient back, and its incoming weights
+      don't move for that example.
+    \item<2-> \textbf{Softmax + cross-entropy: predicted minus correct.} The slope of the loss
+      with respect to each logit is the predicted probabilities minus the correct answer's
+      one-hot vector.
+  \end{enumerate}
+  \uncover<3->{%
+  \[
+    p = [0.665,\; 0.245,\; 0.090],\ \text{first correct} \;\Rightarrow\;
+    \frac{\partial\mathcal{L}}{\partial z} = [-0.335,\; 0.245,\; 0.090]
+  \]
+  The updates move to raise the first logit and lower the other two.}
+\end{frame}
+
+\begin{frame}{Going deeper (optional): backpropagation for the matrix network}
+  For $n$ inputs as rows: $X$ ($n \times 27$), hidden $H$ ($n \times 16$), probabilities $P$
+  ($n \times 27$), one-hot answers $Y$ ($n \times 27$). Every gradient has the shape of the thing
+  it is a gradient for.
+  \vspace{2mm}
+  \begin{center}\small
+  \begin{tabular}{@{}lL{0.62\textwidth}l@{}}
+    \toprule
+    \textbf{Gradient on} & \textbf{Computed as} & \textbf{Shape}\\
+    \midrule
+    logits & $(P - Y)/n$ (division: the loss is a mean) & $n \times 27$\\
+    $W^{(2)}$ & the transpose of $H$ times the logit gradient & $16 \times 27$\\
+    $b^{(2)}$ & column sums of the logit gradient & $1 \times 27$\\
+    $H$ & the logit gradient times the transpose of $W^{(2)}$, zeroed where ReLU's output was zero & $n \times 16$\\
+    $W^{(1)}$ & the transpose of $X$ times that & $27 \times 16$\\
+    $b^{(1)}$ & its column sums & $1 \times 16$\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \vspace{2mm}
+  {\small These are the lines of \texttt{backward}, cell In [\primercell{235}].}
+\end{frame}
+
+\begin{frame}{Going deeper (optional): where ``predicted minus correct'' comes from}
+  Two facts from calculus: the slope of $\ln u$ is $1/u$; the slope of $e^u$ is $e^u$.
+  \pause
+  \[
+    \mathcal{L} = -\ln p_y = -z_y + \ln \sum_j e^{z_j}
+  \]
+  \pause
+  Nudge $z_i$:
+  \begin{itemize}
+    \item the second term changes at rate $\dfrac{e^{z_i}}{\sum_j e^{z_j}} = p_i$;
+    \item the first term contributes $-1$ when $i$ is the correct answer, nothing otherwise.
+  \end{itemize}
+  \pause
+  \[
+    \frac{\partial\mathcal{L}}{\partial z_i} =
+    \begin{cases} p_i - 1 & \text{for the correct answer, } i = y\\ p_i & \text{for every other option} \end{cases}
+  \]
+  \vspace{-1mm}
+  \begin{center}which is $p$ minus the one-hot vector.\end{center}
+  {\small\color{primerMuted}Backpropagation became standard after Rumelhart, Hinton \& Williams
+  (1986) showed it learning useful hidden layers; the method is older (e.g.\ Linnainmaa, 1976).}
+\end{frame}
+
+
+\begin{frame}{Check your understanding}
+  \checkq{In the paper network ($x = 1$, $w_1 = 2$, $w_2 = 0.5$, $y = 2$), which rates multiply
+    to give $\partial\mathcal{L}/\partial w_2$, and what is it? And if ReLU's input had been
+    negative, what would $\partial\mathcal{L}/\partial w_1$ have been?}
+  {$\partial\mathcal{L}/\partial\hat{y} = -1$ times the rate $h = 2$: $-2$. With a negative
+    input ReLU's rate is 0, so no gradient reaches $w_1$: it would be $0$, and $w_1$ wouldn't
+    move for that example.}
+\end{frame}
+
+% ======================================================================== section 7
+\section{The whole loop in numpy}
+
+\begin{frame}{The data: characters to training examples}
+  Each row of \texttt{X} is a one-hot current character; the matching entry of \texttt{y} is
+  the index of the character that follows it.
+  \vspace{1mm}
+  \primercode{179}
+  \primeroutput{179}
+  \cellnote{179}
+\end{frame}
+
+\begin{frame}{The parameters: small random numbers, fixed seed}
+  \begin{columns}[T]
+    \column{0.55\textwidth}
+    \primercode{199}
+    \primeroutput{199}
+    \cellnote{199}
+    \column{0.42\textwidth}
+    \small
+    \begin{itemize}
+      \item They can't all start at zero: every hidden neuron would compute the same thing and
+        receive the same gradient, and could never become different.
+      \item The fixed seed makes your run match the guide's (NumPy 2.2.6, pinned as of October
+        2026).
+      \item 907, as counted by hand.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Forward pass and loss, for all $n$ rows at once}
+  \primercode{214}
+  \primeroutput{214}
+  \cellnote{214}
+\end{frame}
+
+\begin{frame}{Reading the forward pass}
+  \begin{itemize}
+    \item The loss prints $3.296$: the $\ln 27$ of a uniform guess, as predicted.
+    \item \texttt{h} and \texttt{z} are the two layer equations, for every row at once.
+    \item One line subtracts each row's largest logit from the whole row. Softmax depends only
+      on the differences between logits, so the probabilities don't change, and \texttt{exp} is
+      never handed a large positive number.
+    \item \texttt{loss\_of} picks each row's probability for its correct next character and
+      averages $-\ln$ of them: mean cross-entropy.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{The backward pass, one line per gradient}
+  \primercode{235}
+  \cellnote{235}
+\end{frame}
+
+\begin{frame}{From the paper steps to \texttt{backward}}
+  Each line is one of the paper steps, done for every weight and every example at once.
+  \vspace{2mm}
+  \begin{center}\small
+  \begin{tabular}{@{}L{0.27\textwidth}L{0.62\textwidth}@{}}
+    \toprule
+    \textbf{Line} & \textbf{Paper step and reason}\\
+    \midrule
+    \texttt{dz} & predicted minus correct on the logits, divided by $n$: the loss is a mean\\
+    \texttt{dW2 = h.T @ dz} & the second-weight step (hidden value times logit slope), added up
+      over examples: slopes add because the loss averages per-example losses\\
+    \texttt{db2} & a bias moves its logit one-for-one: the column sum\\
+    \texttt{dh = dz @ W2.T} & the hidden-value step\\
+    \texttt{dh[h <= 0] = 0} & ReLU: no gradient where the neuron was off\\
+    \texttt{dW1}, \texttt{db1} & the same pattern, one layer down\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Training: predict before you run}
+  \begin{columns}[T]
+    \column{0.52\textwidth}
+    \renewcommand\codesize{\scriptsize}
+    \primercode{253}
+    \cellnote{253}
+    \vspace{1mm}
+    {\small $\eta = 1$ would bounce forever on the one-knob loss. How long is too long depends on
+    how sharply the particular loss curves, so a learning rate is found by trying.\par}
+    \column{0.45\textwidth}
+    \begin{keyidea}[Predict first]
+      Start $3.296$, $\eta = 1$, 2,000 steps. How fast does the loss fall, and does it reach
+      zero?
+    \end{keyidea}
+    \only<2-| handout:1>{%
+      \primeroutput{253}
+      \vspace{1mm}
+      {\small Fast at first: $1.176$ after 100 steps. Then it levels off just below $0.89$;
+      another thousand steps buy only $0.003$.\par}}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Why it stops: the text sets a floor}
+  In the text, ``t'' is followed by another character 19 times: 11 times by ``h'', 7 times by a
+  space and once by ``o'': 58\%, 37\% and 5\%.
+  \vspace{1mm}
+  \begin{itemize}
+    \item A function of the current character alone can't tell those cases apart, so it gives
+      one set of probabilities for all of them.
+    \item<2-> Average cross-entropy is lowest when the probabilities equal the true frequencies.
+  \end{itemize}
+  \uncover<3->{%
+  \begin{align*}
+    \text{put } 0.90, 0.05, 0.05:&\quad
+      \tfrac{11}{19}(-\ln 0.90) + \tfrac{7}{19}(-\ln 0.05) + \tfrac{1}{19}(-\ln 0.05) \approx 1.32\\
+    \text{use } \tfrac{11}{19}, \tfrac{7}{19}, \tfrac{1}{19}:&\quad \approx 0.84
+      \quad\text{(the floor for the 19 examples after ``t'')}
+  \end{align*}}
+\end{frame}
+
+\begin{frame}{The best possible table, measured}
+  \primercode{279}
+  \primeroutput{279}
+  \cellnote{279}
+  \vspace{1mm}
+  \begin{itemize}
+    \item No function of the current character can get below $0.884$ on this text; the network
+      reached $0.887$.
+    \item<2-> A claim about the 127 training examples only; real training is judged on unseen
+      text (Guide 7). Doing better needs more context: attention, in Guide 4.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Inference: probabilities close to the text's frequencies}
+  \primercode{295}
+  \primeroutput{295}
+  \cellnote{295}
+\end{frame}
+
+\begin{frame}{Reading the inference output}
+  \begin{itemize}
+    \item After ``t'' the most likely next character is ``h''; after ``e'', a space. Both sit close
+      to the text's frequencies.
+    \item The network still puts $0.32$ on a space after ``t'': naming ``h'' as its prediction is a
+      choice made from those probabilities.
+    \item The loop was \term{training}: every pass changed the parameters. This block was
+      \term{inference}: forward pass only, parameters exactly as training left them.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{Someone suggests training for many more steps to push the loss on this text to $0.5$.
+    What do you tell them?}
+  {It can't happen with this input. The best any function of the current character can do on
+    this text is $0.884$, and the network is already at $0.887$. A lower loss needs more
+    context, not more steps.}
+\end{frame}
+
+% ======================================================================== section 8
+\section{What carries forward to LLMs}
+
+\begin{frame}{From the toy to an LLM}
+  Each piece has a counterpart you'll meet later (sizes as of October 2026):
+  \vspace{2mm}
+  \begin{center}\small
+  \begin{tabular}{@{}L{0.34\textwidth}L{0.44\textwidth}l@{}}
+    \toprule
+    \textbf{Toy network} & \textbf{LLM} & \textbf{Guide}\\
+    \midrule
+    one-hot input & a learned vector for each token & 2, 3\\
+    the single current character & all the earlier text, through attention & 4\\
+    two layers & dozens of transformer blocks & 5\\
+    softmax over 27 characters & softmax over tens or hundreds of thousands of tokens & 6\\
+    907 parameters, one sentence & billions of parameters, trillions of tokens & 7\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+\end{frame}
+
+\begin{frame}{What stays the same: the recipe}
+  \begin{columns}[T]
+    \column{0.23\textwidth}
+    \begin{keyidea}[function]
+      with adjustable numbers
+    \end{keyidea}
+    \column{0.23\textwidth}
+    \begin{keyidea}[loss]
+      says how wrong it is
+    \end{keyidea}
+    \column{0.23\textwidth}
+    \begin{keyidea}[backpropagation]
+      gives the gradient of that loss
+    \end{keyidea}
+    \column{0.23\textwidth}
+    \begin{keyidea}[descent step]
+      moves every parameter a little way against it
+    \end{keyidea}
+  \end{columns}
+  \vspace{5mm}
+  \begin{center}\large An LLM is trained with that same loop.\end{center}
+\end{frame}
+
+% ======================================================================== closing
+\section*{Wrap-up}
+
+\begin{frame}{What we simplified, and where it's repaid}
+  \begin{center}\small
+  \begin{tabular}{@{}L{0.36\textwidth}L{0.42\textwidth}l@{}}
+    \toprule
+    \textbf{In this guide} & \textbf{In an LLM} & \textbf{Repaid}\\
+    \midrule
+    \simplification{one character of context}{all earlier text, up to a fixed limit}{Guide 4}
+    \simplification{one-hot inputs}{learned vectors}{Guide 3}
+    \simplification{each step on the whole dataset, plain gradient descent}{small random samples, more elaborate update rules}{Guide 7}
+    \simplification{a token is ``roughly a word''}{refined in Guide 2}{Guide 2}
+    \simplification{loss on the training examples}{loss on text the model never saw}{Guide 7}
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \vspace{2mm}
+  {\small\color{primerMuted}The paper backpropagation example used squared error only for small
+  arithmetic; language models train on cross-entropy.}
+\end{frame}
+
+\begin{frame}{Summary}
+  \begin{enumerate}\small
+    \item A neuron is a weighted sum plus a bias through a fixed activation; its weights and bias
+      are parameters.
+    \item A layer is one matrix multiply. Without the bend, stacked layers collapse into one;
+      ReLU makes the matrix depend on the input.
+    \item The forward pass maps a $1 \times 27$ one-hot row to 27 logits through 907 parameters,
+      and handles $n$ rows at once.
+    \item Softmax turns logit differences into probability ratios; cross-entropy $-\ln p_y$
+      scores them, starting near $\ln 27 \approx 3.30$.
+    \item Gradient descent moves every knob against its slope, scaled by $\eta$: too long a stride
+      overshoots, too short crawls.
+    \item Backpropagation multiplies rates backward, sharing each slope, so all gradients cost
+      about one extra pass. On the logits it gives predicted minus correct.
+    \item The numpy loop reaches $0.887$ against a floor of $0.884$: the limit is the
+      one-character context, not the training.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Exercises: try it in the notebook}
+  \small
+  \begin{enumerate}
+    \item \textbf{On paper.} \free{For $x = [1, 3]$, $w = [0.5, -1]$, $b = 2$,} compute the
+      neuron's sum and its ReLU output. Then find an input that switches it on.
+    \item \textbf{Gradient check} (cell In [\primercell{235}]). Pick one entry of \texttt{W2},
+      nudge it by \free{$10^{-5}$}, and compare the change in loss per unit nudge with the
+      matching entry of \texttt{dW2}. Explain any small difference.
+    \item \textbf{Learning rate} (cell In [\primercell{253}]). Rerun training with
+      \free{$\eta = 0.1$ and $\eta = 3$}. Before running, predict which one crawls and which
+      one might overshoot.
+    \item \textbf{Hidden size} (cells In [\primercell{199}]--[\primercell{253}]). Change 16 hidden
+      neurons to \free{4, then 64}. Predict the parameter count from the formula, then check
+      whether the loss still approaches the floor of $0.884$.
+    \item \textbf{Symmetry} (cell In [\primercell{199}]). Fill \texttt{W1} and \texttt{W2} with
+      the same small positive number, \free{say 0.01}, so every hidden neuron is on and identical.
+      Train, then compare the columns of \texttt{W1}. (Why not all zeros? Try it, and look at
+      \texttt{h}.)
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Further reading}
+  \small
+  \begin{itemize}
+    \item V.\ Nair \& G.\ Hinton (2010). Rectified linear units improve restricted Boltzmann
+      machines. \emph{ICML}. \ (ReLU)
+    \item G.\ Cybenko (1989). Approximation by superpositions of a sigmoidal function.
+      \emph{Mathematics of Control, Signals and Systems}.
+    \item K.\ Hornik, M.\ Stinchcombe \& H.\ White (1989). Multilayer feedforward networks are
+      universal approximators. \emph{Neural Networks}.
+    \item M.\ Leshno, V.\ Lin, A.\ Pinkus \& S.\ Schocken (1993). Multilayer feedforward networks
+      with a nonpolynomial activation function can approximate any function. \emph{Neural
+      Networks}.
+    \item D.\ Rumelhart, G.\ Hinton \& R.\ Williams (1986). Learning representations by
+      back-propagating errors. \emph{Nature}.
+    \item S.\ Linnainmaa (1976). Taylor expansion of the accumulated rounding error. \emph{BIT}.
+  \end{itemize}
+  {\small\color{primerMuted}Links for each are in the \href{\guideurl}{guide}.}
+\end{frame}
+
+\begin{frame}{Next time: Guide 2, tokenization}
+  \begin{itemize}
+    \item Today's network read characters, one-hot. An LLM's softmax runs over its vocabulary,
+      the set of tokens it can output, and we called a token ``roughly a word''.
+    \item Guide 2 shows what a token really is.
+  \end{itemize}
+  \vspace{4mm}
+  \begin{keyidea}[Before next time]
+    Run the notebook from top to bottom and check that every printed number matches the slides.
+  \end{keyidea}
+\end{frame}
+
+
+\end{document}
