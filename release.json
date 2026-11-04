@@ -4,7 +4,7 @@
   "author": "Dr. Vinay Gautam",
   "repo": "drvgautam/primer-on-aiengineering",
   "branch": "main",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "cover": "book/ai-engineering-primer-cover.pdf",
   "parts": [
     {
@@ -50,17 +50,15 @@
         {
           "guide": 9,
           "slug": "alignment"
+        },
+        {
+          "guide": 10,
+          "slug": "inference"
         }
       ]
     }
   ],
   "unreleased": [
-    {
-      "guide": 10,
-      "slug": "inference",
-      "title": "Inference and serving: running a trained model fast and cheap",
-      "part": "Lifecycle"
-    },
     {
       "guide": 11,
       "slug": "tools",

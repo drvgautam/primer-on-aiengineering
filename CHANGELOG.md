@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 (2026-11-04)
+
+Guide 10 joins Part 2, "Lifecycle":
+
+- Guide 10, inference and serving: prefill and decode, the KV cache, why decode is limited by memory and how batching helps, sharing keys and values (multi-query and grouped-query attention), quantization, speculative decoding, and the rest of the serving stack (FlashAttention, continuous batching, prefix caching)
+- Notebook `10-inference.ipynb`, checked in CI like the others. It starts from Guide 8's checkpoint and loads the draft model from `code/guides/checkpoints/draft.pt`. Its checked outputs matched the guide on every processor and thread setup tried; the timing blocks print your machine's times, which the guide quotes from its test machine and never checks
+- Guide 10 in the PDF book, with its figures, and its terms in the glossary and notation appendices
+
 ## 0.5.0 (2026-11-04)
 
 Guide 9 joins Part 2, "Lifecycle":

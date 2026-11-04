@@ -1,6 +1,6 @@
 # Glossary
 
-One term per concept, as used in Guides 1–9. Declared synonyms are other names you'll meet in the literature.
+One term per concept, as used in Guides 1–10. Declared synonyms are other names you'll meet in the literature.
 
 | Term (used in the guides) | Definition | Declared synonyms | Guide |
 |---|---|---|---|
@@ -10,6 +10,7 @@ One term per concept, as used in Guides 1–9. Declared synonyms are other names
 | logits | The network's raw output scores, one per option, before softmax; in an LLM, one per vocabulary entry. | — | 1 |
 | post-training | Everything after pre-training that shapes behavior: SFT, preference tuning, and reinforcement-learning stages. | — | 8 |
 | preference tuning | Training on comparisons between outputs (RLHF, DPO and related methods). | alignment training | 9 |
+| KV cache | Stored keys and values for earlier positions, reused at each generation step. | — | 10 |
 | parameter | One of the adjustable numbers that set what a network computes; all of them together are $\theta$. | knob (informal) | 1 |
 | weight | The number a neuron multiplies one of its inputs by; an entry of $W$. | — | 1 |
 | bias | The number a neuron adds after its weighted sum; an entry of $b$. | — | 1 |
@@ -201,3 +202,27 @@ One term per concept, as used in Guides 1–9. Declared synonyms are other names
 | home rate | In Guide 9's toy, the probability of an animal's own home after renormalizing over the six places, averaged over prompts; the preference measure. | preference measure; preference score | 9 |
 | response probability | A model's probability of a whole response: the product of its next-token probabilities along it; its log is the sum of their logs. | sequence log-probability | 9 |
 | sigmoid | The logistic function $1/(1+e^{-t})$, mapping any number into (0, 1). | logistic function | 9 |
+| latency | How long one user waits for output; measured as time to first token and time per output token. | — | 10 |
+| throughput | Tokens per second the hardware produces across all users. | — | 10 |
+| prefill | The phase that reads the prompt in one parallel pass and fills the KV cache. | — | 10 |
+| decode phase | The phase that generates one token per pass after prefill; unrelated to decoding token IDs into text (Guide 2) and to decoding rules (Guide 6); never called "decoding", which stays Guide 6's rule (except in the fixed name "speculative decoding"). | decode; decode step (one pass) | 10 |
+| time to first token | Wait before the first output token appears; mostly prefill. | TTFT | 10 |
+| time per output token | Time for one decode step; how fast text streams. | TPOT | 10 |
+| memory bandwidth | Bytes per second a processor can read from memory. | — | 10 |
+| memory-bound | Limited by memory bandwidth rather than arithmetic; a decode step for one sequence reads every weight for about one operation per byte (16-bit weights). | — | 10 |
+| batching (serving) | Decoding many sequences in one step so one read of the weights serves all of them. | — | 10 |
+| continuous batching | Adding and removing sequences from the batch at every decode step. | — | 10 |
+| PagedAttention (named only) | Storing KV caches in fixed-size pages so memory isn't reserved for unused tokens (vLLM). | — | 10 |
+| multi-query attention | All query heads share one set of keys and values; $h_{\text{kv}} = 1$. | MQA | 10 |
+| grouped-query attention | Groups of query heads share one set of keys and values each; $1 < h_{\text{kv}} < h$. | GQA | 10 |
+| quantization | Storing weights (or the KV cache) as small integers plus a scale, in fewer bits. | — | 10 |
+| draft model | A small, fast model whose guesses a large model verifies in speculative decoding. | — | 10 |
+| speculative decoding | A draft model proposes several tokens; the large model checks them in one pass and keeps the run it agrees with plus its own next token; greedy output unchanged. | — | 10 |
+| FlashAttention | Exact attention computed in tiles in fast on-chip memory, with a running maximum and running sum of exponentials per row, never storing the full score grid. | — | 10 |
+| multi-head latent attention (named only) | Compressing each token's keys and values into one smaller vector to shrink the KV cache (DeepSeek-V2). | MLA | 10 |
+| large model (speculative decoding) | The model whose output speculative decoding reproduces; it checks the draft model's guesses. | target model (other sources; never bare "target", which is the correct answer) | 10 |
+| prefix caching (named only) | Keeping the KV caches of common prompt prefixes, such as a shared system prompt, so later requests skip rebuilding them; output unchanged. | — | 10 |
+| memory estimate (serving) | Weights at bytes per parameter, plus KV cache per token times context times sequences served at once. | — | 10 |
+| on-chip memory | A processor's small, fast memory beside its arithmetic units, far smaller than its main memory. | — | 10 |
+| scale (quantization) | The shared number that integer levels are multiplied by to recover weights, one per row in Guide 10's toy; unrelated to layer normalization's scale $\gamma$ and LoRA's $\alpha/r$. | — | 10 |
+| system prompt | Text an application puts at the start of every request to set the model's behavior, sent before the user's turns. | — | 10 |

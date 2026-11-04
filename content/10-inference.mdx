@@ -1,0 +1,290 @@
+---
+title: "Inference and serving: running a trained model fast and cheap"
+guide: 10
+slug: inference
+part: Lifecycle
+---
+import { PhasesFigure, CacheFigure, BatchFigure, SpeculativeFigure } from "../components/figures/inference"
+
+# Inference and serving: running a trained model fast and cheap
+
+Guides 7 to 9 trained a model. This guide runs one. By the end you'll be able to estimate how much memory a model needs while it generates. You'll be able to explain why generating text for one user is limited by how fast memory can be read rather than by arithmetic, and how batching changes that. And you'll know what each of the main speed-ups trades away: the key–value (KV) cache, batching, shared keys and values, quantization and speculative decoding.
+
+## From training to serving
+
+Recall from Guide 6 that a model generates text in a loop: predict a distribution over the next token, choose one, append it, and run again. Training ends with fixed weights. Serving is running that loop for whoever sends a request, all day.
+
+Two numbers describe how well that goes. **Latency** is how long one user waits for text. **Throughput** is how many tokens per second the hardware produces across all users. A service wants low latency for each person and high throughput overall, and memory sets the limits on both. Training happens once, but serving goes on for as long as the model is in use, so small savings per token add up.
+
+## Two phases: prefill and decode
+
+A request has two phases. In **prefill**, the model reads the prompt in one parallel pass, every position at once, the way Guide 6's teacher forcing trains every position at once. In the **decode** phase (unrelated to Guide 2's decode, which turns token IDs back into text, and to Guide 6's decoding rules), it produces the answer one token at a time, one pass per token, because each token depends on the one before.
+
+The code uses PyTorch 2.14.1 from the series `requirements.txt`, as of October 2026, and its blocks run in order and share variables. Run them from the repository root. The plumbing lives in `guides/inference.py`, and the blocks show the lines that carry each lesson. It runs Guide 8's toy base model, 29,275 parameters, trained on the toy world of sentences like "the cat sat on the mat". In the toy, each character is a token, as in Guides 5 to 9; real models use the subword tokens of Guide 2. The first block times the 19-character prompt "the cat sat on the " as one pass, and as 19 passes of one character each, the shape of decode.
+
+```python fresh
+import sys, math
+sys.path.insert(0, "guides")                   # run from the repository root
+import torch
+from inference import (load_base, load_draft, encode, text, median_ms, generate_nocache, generate_cache,
+                       decode_step_ms, quantize_, per_matrix, val_loss, homes_recalled, weight_kb,
+                       draft_tokens, greedy_text)
+torch.set_num_threads(1)                       # one CPU thread, so timings compare like with like
+
+base = load_base()                             # Guide 8's base model, from its checkpoint
+ids = encode("the cat sat on the ")            # 19 character IDs
+with torch.no_grad():
+    together = median_ms(lambda: base(ids[None]))                                        # one parallel pass
+    one_by_one = median_ms(lambda: [base(ids[None, i:i + 1]) for i in range(len(ids))])  # 19 one-position passes
+print(f"one pass {together:.2f} ms, 19 passes {one_by_one:.2f} ms, {one_by_one / together:.0f}x slower")
+```
+
+Timings depend on the machine, so this block has no checked output. On our test machine, one pass took 0.39 ms and 19 passes took 6.0 ms, about 15 times slower for the same number of positions. In a large model, each one-position decode pass costs about as much as a whole short prefill, because both are dominated by reading the weights (the batching section shows why), so the ratio approaches the full 19. The toy's one 19-position pass still pays a little per position, which is why it comes out at 15. The counts and ratios in this guide are what carry over to large models; the toy's timings only show the direction.
+
+The two phases give the two latency measures people quote. **Time to first token** (TTFT) is mostly prefill: the wait before anything appears. **Time per output token** (TPOT) is the decode step: how fast text streams after that. A chat feels fast when the first is short and the second keeps ahead of reading speed.
+
+<figure>
+<PhasesFigure />
+<figcaption>Figure 1. One request over time. Prefill reads the whole prompt in one wide parallel pass, which ends at the first token; then each decode step is a narrow pass that produces one more token. Time to first token covers prefill; time per output token is one decode step.</figcaption>
+</figure>
+
+## The KV cache
+
+Recall from Guide 4 that attention gives each position a query, a key and a value, and that the causal mask stops each position from seeing later ones. Guide 6's generation loop runs the whole text through the model at every step. So at step 30 it recomputes the keys and values of the first 29 tokens, exactly as it did at step 29. They can't have changed: the causal mask means earlier positions never see what comes after them.
+
+The **KV cache** keeps them. Each step computes the query, key and value for the new token only, appends the key and value to a per-block store of all earlier ones, and lets the new query draw from the store. Guides 4 and 6 simplified generation as recomputing everything each step; this is the fix. Here's attention with a cache, for the toy's blocks, where `x` holds only the new positions:
+
+```python
+def attend_cached(block, x, cache):            # x: B × m × d_model, the m new positions only
+    B, m, d_model = x.shape
+    d_k = d_model // block.h
+    Q, K, V = block.qkv(x).view(B, m, 3, block.h, d_k).permute(2, 0, 3, 1, 4)   # W^Q, W^K, W^V as one matrix; each B × h × m × d_k
+    if cache is not None:                      # append the new keys and values to the stored ones
+        K, V = torch.cat([cache[0], K], dim=2), torch.cat([cache[1], V], dim=2)
+    n = K.shape[2]                             # positions so far, cached plus new
+    S = Q @ K.transpose(-2, -1) / math.sqrt(d_k)                                  # B × h × m × n
+    M = torch.full((m, n), float("-inf")).triu(n - m + 1)  # m × n: new query i is at position n − m + i, so it masks later keys
+    out = (torch.softmax(S + M, dim=-1) @ V).transpose(1, 2).reshape(B, m, d_model)
+    return block.proj(out), (K, V)             # W^O, and the cache to keep
+```
+
+During prefill, `m` is the prompt's length and the mask is Guide 4's causal mask. During decode, `m` is 1 and the mask is empty: the one new query may see every stored key. `generate_cache` runs each block with this function; `generate_nocache` is Guide 6's loop. Both generate 40 characters greedily (always taking the top-scoring character, Guide 6) after "the cat sat on the ".
+
+```python
+slow_text, slow_positions, slow_logits = generate_nocache(base, "the cat sat on the ", 40)
+fast_text, fast_positions, fast_logits = generate_cache(base, "the cat sat on the ", 40, attend_cached)
+print(repr(fast_text), fast_text == slow_text)
+print(f"positions processed: {slow_positions:,} without the cache, {fast_positions} with it")
+print(f"largest logit difference below 1e-4: {(slow_logits - fast_logits).abs().max() < 1e-4}")
+```
+
+```output
+'the cat sat on the bed and the rat lay by the log and the h' True
+positions processed: 1,540 without the cache, 58 with it
+largest logit difference below 1e-4: True
+```
+
+The same text, with about 27 times less work. Without the cache the model processes 19 + 20 + … + 58 = 1,540 positions; with it, the 19-character prompt once and then one position for each new character after the first (the prefill pass already predicts the first), 58 in all. The logits differ by less than 0.0001 (0.0000088 on our test machine), floating-point rounding from adding the numbers in a different order. The cache changes how much is computed, not what.
+
+```python
+slow = median_ms(lambda: generate_nocache(base, "the cat sat on the ", 40), 10)
+fast = median_ms(lambda: generate_cache(base, "the cat sat on the ", 40, attend_cached), 10)
+print(f"{slow:.0f} ms without the cache, {fast:.0f} ms with it")
+```
+
+On our test machine that was 22 ms against 15 ms, far less than 27 times. Both loops make 40 passes, and the toy spends most of each pass on fixed overhead: Python and the per-operation dispatch costs that don't depend on the model's size, not arithmetic over positions. The cache saves arithmetic in proportion to the context's length. That only turns into time once rerunning the context costs more than reading the weights, which every pass has to do; the next section explains why.
+
+<figure>
+<CacheFigure />
+<figcaption>Figure 2. Attention work across decode steps after the running example's 5-token prompt, "The cat sat on the" (rows are queries, columns keys). Without a cache, every step recomputes the whole triangle, and every key and value with it. With one, each step computes only the new query's row; the earlier keys and values are read from the cache, and the earlier rows aren't needed, because their outputs were finished on earlier steps.</figcaption>
+</figure>
+
+The price is memory. Each token's entry holds a key and a value for every head in every block. For GPT-2 small, which has 12 blocks of 12 heads, each 64 numbers wide (Guide 5):
+
+```python
+L, h, d_k = 12, 12, 64                         # GPT-2 small: blocks, heads, head width
+per_token = 2 * L * h * d_k                    # a key and a value per head per block
+print(f"{per_token:,} numbers per token: {per_token * 2:,} bytes in 16-bit, {per_token * 2 * 1024 / 1e6:.1f} MB at 1,024 tokens")
+print(f"'The cat sat on the', 5 tokens, 32-bit: {per_token * 4 * 5:,} bytes, plus {per_token * 4:,} per new token")
+```
+
+```output
+18,432 numbers per token: 36,864 bytes in 16-bit, 37.7 MB at 1,024 tokens
+'The cat sat on the', 5 tokens, 32-bit: 368,640 bytes, plus 73,728 per new token
+```
+
+A full 1,024-token context costs 37.7 MB of cache, and every user being served at once needs their own. The cache is scratch space for one request and is thrown away when the response ends. The model keeps nothing between calls. In a chat, the application re-sends the whole history each turn, and the server rebuilds the cache from it. Some servers keep the caches of common prefixes, such as a shared system prompt (the instructions an application puts before every conversation) or earlier turns, called **prefix caching**, so a later request skips rebuilding them without any change to its output. The series runs GPT-2 in 32-bit on a CPU, so for the running example the cache after "The cat sat on the" holds 368,640 bytes and grows by 73,728 with each new token.
+
+## Why decode is limited by memory, and how batching helps
+
+Recall from Guide 7 that a forward pass costs about $2N$ floating-point operations per token, for a model of $N$ parameters. **Memory bandwidth** is how many bytes per second the processor can read from memory, and a decode step has to read every weight once to produce one token. The weights, 249 MB at 16 bits even for GPT-2 small, sit in the processor's main memory, far larger than its small, fast on-chip memory, so every step streams them in again. Divide the operations by the bytes read, and compare that with the hardware's own ratio, the operations it can do per second divided by its bandwidth. A step is memory-bound when its operations per byte read fall below the hardware's:
+
+```python
+N = 124_439_808                                # GPT-2 small's parameters (Guide 5)
+print(f"one decode step: {2 * N / 1e6:.0f} million operations on {N * 2 / 1e6:.0f} MB of 16-bit weights, "
+      f"{2 * N / (N * 2):.0f} operation per byte read")
+```
+
+```output
+one decode step: 249 million operations on 249 MB of 16-bit weights, 1 operation per byte read
+```
+
+A real accelerator's ratio is in the hundreds. NVIDIA's H100, from its 2022 datasheet, does about 989 trillion 16-bit operations per second (the dense figure; the headline 1,979 counts a feature that skips multiplications by weights pruned to zero) and reads 3.35 TB per second from its main memory: about 300 operations per byte. Newer accelerators raise both numbers, so take the exact ratio as a 2022 snapshot. At 1 operation per byte the arithmetic units mostly wait for data. Decode for one sequence at a time is **memory-bound**: its speed is set by memory bandwidth, not arithmetic. Prefill of a long prompt isn't, because it reuses each weight it reads for every prompt position at once. That's also when the cache from the last section starts saving time: without it, a decode step at a context of $n$ tokens is a prefill of $n$ positions, about $n$ operations per byte, so past a few hundred tokens the recomputation, not the weight reads, sets each step's time.
+
+**Batching** gives decode the same reuse. Decode many sequences together, and one read of the weights serves all of them: at a batch of $B$ sequences a step does about $B$ operations per byte, so on that 300-to-1 accelerator decode stays memory-bound until around 300 sequences. In practice the caches cap the batch first: 300 full GPT-2 contexts need about 11 GB of cache, 45 times the weights, and each sequence's cache is also read every step, which batching doesn't share. This block times one decode step at four batch sizes, each sequence with 20 tokens already cached.
+
+```python
+for batch in (1, 16, 64, 256):
+    ms = decode_step_ms(base, batch, attend_cached)                  # median of 30 steps
+    print(f"batch {batch:3}: {ms:.2f} ms per step, {batch / ms * 1000:,.0f} tokens per second")
+```
+
+On our test machine, with one CPU thread:
+
+| Sequences per step | Time per step | Tokens per second |
+|---|---|---|
+| 1 | 0.33 ms | about 3,000 |
+| 16 | 0.48 ms | about 33,000 |
+| 64 | 0.86 ms | about 75,000 |
+| 256 | 2.30 ms | about 111,000 |
+
+256 times the work cost about 7 times the time: 37 times the throughput. The toy's gain comes from spreading its fixed overhead over more sequences, and a large model's from spreading the weight reads.
+
+<figure>
+<BatchFigure />
+<figcaption>Figure 3. Tokens per second against sequences per decode step, both on logarithmic axes, from the table (our test machine, one CPU thread). Throughput rises almost in step with the batch at first, then flattens as the work per step starts to cost time.</figcaption>
+</figure>
+
+Batching has two costs. Each step takes longer, so every user's time per output token rises, from 0.33 ms to 2.30 ms in the table, even as total throughput climbs; servers pick a batch size that keeps streaming ahead of reading speed. And each sequence's KV cache has to be in memory at the same time. The 37.7 MB per GPT-2 context above is the kind of number that decides how many users fit in one batch. Real requests also start and finish at different times, so since the Orca serving system, servers have used **continuous batching**, adding and removing sequences at every step instead of waiting for a whole batch to finish ([Yu et al., 2022](https://www.usenix.org/conference/osdi22/presentation/yu)). Many also store caches in fixed-size pages, so memory isn't reserved for tokens a sequence never reaches (**PagedAttention**; [Kwon et al., 2023](https://arxiv.org/abs/2309.06180)). Recall from Guide 8 that a LoRA (low-rank adaptation) adapter is a small pair of matrices added beside frozen weights, about 1% of the model's size. That makes it cheap for a server to keep many of them loaded over one base model and apply each request's own ([Sheng et al., 2023](https://arxiv.org/abs/2311.03285)).
+
+Batching has one more effect, which Guide 6 mentioned. The same prompt at temperature 0 can give different outputs on a server, partly because the arithmetic can depend on what else is in the batch ([He, 2025](https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/)).
+
+## Smaller caches: sharing keys and values
+
+The cache is the other big consumer of memory, and the way to shrink it is to store fewer or smaller keys and values per token. The best-known designs let several query heads share one set of keys and values. When all heads share one, it's **multi-query attention** (MQA) ([Shazeer, 2019](https://arxiv.org/abs/1911.02150)). When groups of heads share one each, it's **grouped-query attention** (GQA) ([Ainslie et al., 2023](https://arxiv.org/abs/2305.13245)). Queries stay one per head, so heads can still draw from different positions; they just look up the same keys and values. Call the number of key–value heads $h_{\text{kv}}$: it equals the number of heads $h$ without sharing, and 1 for multi-query attention.
+
+Take a configuration like the 70-billion-parameter Llama 2 model, as published in 2023: 80 blocks (papers say layers), 64 query heads of width 128, and 8 key–value heads ([Touvron et al., 2023](https://arxiv.org/abs/2307.09288)).
+
+```python
+for h_kv in (64, 8):                           # 80 blocks, 64 query heads of width 128; 64 = no sharing, for comparison
+    per_token = 2 * 80 * h_kv * 128 * 2        # key and value, 16-bit: bytes per token
+    print(f"h_kv = {h_kv:2}: {per_token:,} bytes per token, {per_token * 4096 / 1e9:.2f} GB at 4,096 tokens")
+print(f"weights 140 GB + 16 sequences of 4,096 tokens: {140 + 16 * per_token * 4096 / 1e9:.1f} GB in all")
+```
+
+```output
+h_kv = 64: 2,621,440 bytes per token, 10.74 GB at 4,096 tokens
+h_kv =  8: 327,680 bytes per token, 1.34 GB at 4,096 tokens
+weights 140 GB + 16 sequences of 4,096 tokens: 161.5 GB in all
+```
+
+Eight times smaller, so eight times as many sequences fit in the same cache budget. The last line puts a memory estimate together: weights at 2 bytes per parameter, plus the cache per token times the context times the number of sequences served at once. **Multi-head latent attention** (MLA) compresses each token's keys and values into one smaller vector ([DeepSeek-AI, 2024](https://arxiv.org/abs/2405.04434)). Sharing costs a little quality, and grouped-query attention recovers most of what multi-query attention loses (Ainslie et al., 2023). And recall from Guide 4 that being able to draw on a token isn't using it well: the models Liu et al. tested used the middle of a long input less reliably than its ends ([Liu et al., 2023](https://arxiv.org/abs/2307.03172)). A smaller cache buys longer contexts, not better use of them.
+
+## Quantization: storing weights in fewer bits
+
+The weights themselves can shrink too. **Quantization** stores each weight as a small integer and a shared scale it's multiplied by. One bit holds the sign, and each value is rounded to one of a few evenly spaced levels, symmetric around zero: from $-(2^{\text{bits}-1}-1)$ to $+(2^{\text{bits}-1}-1)$ times the scale. At 2 bits that's only three levels, −1, 0 and +1. One scale per output neuron (a row of PyTorch's weight matrix, which is stored outputs × inputs) keeps each row's rounding error in proportion to that row's own values, so a row of small weights isn't rounded on the same coarse grid as a row of large ones.
+
+This is the simplest scheme, symmetric rounding with one scale per row; the accordion after the results covers what real methods add. Each run reports validation loss on held-out world text and "homes": the model completes "the *animal* lives in the" for all six animals, as Guide 8 did.
+
+```python
+def quantize_rows(W, bits):                    # W: d_out × d_in (PyTorch's nn.Linear layout)
+    scale = W.abs().amax(dim=1, keepdim=True) / (2 ** (bits - 1) - 1)   # one scale per row: its largest value maps to the top level
+    return (W / scale).round() * scale         # round to an integer level, then multiply back
+
+print(f"32 bits: loss {val_loss(base):.3f}; homes {homes_recalled(base)} of 6; {weight_kb(base, 0, 32):.1f} KB")
+for bits in (8, 6, 4, 3, 2):
+    rows, whole = load_base(), load_base()
+    count = quantize_(rows, quantize_rows, bits)                     # every weight matrix and embedding table
+    quantize_(whole, per_matrix(quantize_rows), bits)                # the same, one scale per matrix
+    print(f"{bits} bits: loss {val_loss(rows):.3f} per row, {val_loss(whole):.3f} per matrix; "
+          f"homes {homes_recalled(rows)} of 6; {weight_kb(rows, count, bits):.1f} KB")
+```
+
+```output
+32 bits: loss 0.244; homes 6 of 6; 117.1 KB
+8 bits: loss 0.244 per row, 0.244 per matrix; homes 6 of 6; 34.8 KB
+6 bits: loss 0.244 per row, 0.245 per matrix; homes 6 of 6; 27.7 KB
+4 bits: loss 0.259 per row, 0.456 per matrix; homes 6 of 6; 20.6 KB
+3 bits: loss 0.937 per row, 1.500 per matrix; homes 4 of 6; 17.1 KB
+2 bits: loss 4.765 per row, 6.220 per matrix; homes 0 of 6; 13.6 KB
+```
+
+Quantization covers 28,352 of the 29,275 parameters, every matrix and embedding table; the other 923 stay at 32 bits. Down to 6 bits neither measure moves noticeably on this toy. At 4 bits it loses a little with per-row scales and much more with one scale per matrix. At 3 bits it breaks, and at 2 it's useless. Memory falls with the bit width. It's counted at 1,000 bytes per KB, with one 32-bit scale for each of the 694 quantized rows: at 8 bits, 28,352 × 8 + 923 × 32 + 694 × 32 bits is 34.8 KB. The code multiplies back to floats to simulate the integers; a real system stores the integers and scales.
+
+So quantization isn't free compression. It lowers the precision of the weights the model computes with, and how much quality survives depends on the method and the bit width. At scale the savings are what make it worth the care: a 70-billion-parameter model's weights take 140 GB in 16-bit precision and 35 GB in 4-bit. That's a quarter of the bytes to store, which can mean fewer accelerators to hold the model, and, from the batching section, a quarter of the bytes to read per decode step.
+
+<details>
+<summary>How real quantization methods do better than rounding</summary>
+
+The toy rounds each row to evenly spaced levels. Methods published from 2022 to 2024 keep more quality at low bit widths in a few ways.
+
+**Outliers.** A few weights and activations in large models are far larger than the rest, and they stretch the scale so everything else rounds coarsely. LLM.int8() handles those few dimensions in 16-bit and the rest in 8-bit ([Dettmers et al., 2022](https://arxiv.org/abs/2208.07339)).
+
+**Choosing the rounding.** Instead of rounding each weight to its nearest level, GPTQ rounds one column at a time and adjusts the remaining weights to cancel the error introduced so far, measured on sample inputs ([Frantar et al., 2023](https://arxiv.org/abs/2210.17323)). AWQ finds the small fraction of weights that matter most, judged by the size of the activations they multiply, and scales them so they round more precisely ([Lin et al., 2024](https://arxiv.org/abs/2306.00978)).
+
+Real 4-bit formats usually keep a scale for each small group of weights, such as 128, rather than for each row, and some add a zero point so the levels needn't be symmetric.
+
+The KV cache can be quantized too, with scales grouped to suit keys and values ([Liu et al., 2024](https://arxiv.org/abs/2402.02750)), which shrinks the cache's memory cost directly.
+
+</details>
+
+## Speculative decoding
+
+Decode takes one pass of the large model per token, and each pass reads all its weights. **Speculative decoding** gets several tokens out of one pass ([Leviathan et al., 2023](https://arxiv.org/abs/2211.17192); [Chen et al., 2023](https://arxiv.org/abs/2302.01318)). A small, fast **draft model** guesses the next few tokens. The large model then checks all the guesses in one parallel pass. As in Guide 6's teacher forcing, each position's output is the model's prediction given everything up to it, so feeding the text plus 4 guesses gives its own choice after each prefix, 5 choices in all. The pass reads the weights once, so it costs about one decode step. It keeps the guesses up to the first one it disagrees with, and adds its own choice at that point.
+
+With greedy choice, the output can't change. A guess is kept only if it's exactly the token the large model would have chosen there, and the token added after the kept run is the large model's own choice. The draft only decides how many of the large model's tokens come out of each pass. Recall that Guide 6's loop adds one token per pass and promised serving tricks could do better; this is one, since a single large-model pass can add several.
+
+The draft here is a much smaller toy model, 5,227 parameters (one block, width 16), trained on the same world and loaded from a checkpoint. It proposes 4 characters at a time:
+
+```python
+draft = load_draft()                           # 5,227 parameters, one block of width 16
+print(f"draft loss {val_loss(draft):.3f}, large model {val_loss(base):.3f}")
+def speculative(large, draft, prompt, n_new, k=4):
+    ids, passes, accepted = encode(prompt), 0, 0
+    while len(ids) < len(prompt) + n_new:
+        guess = draft_tokens(draft, ids, k)                          # the draft's next k characters
+        with torch.no_grad():                                        # one large-model pass checks all k
+            choice = large(torch.cat([ids, guess])[None])[0, len(ids) - 1:].argmax(-1)   # k + 1 choices
+        ok = 0
+        while ok < k and guess[ok] == choice[ok]:                    # longest run the large model agrees with
+            ok += 1
+        ids = torch.cat([ids, guess[:ok], choice[ok:ok + 1]])        # kept guesses, then the large model's own choice
+        passes, accepted = passes + 1, accepted + ok
+    return text(ids[:len(prompt) + n_new]), passes, accepted
+
+for prompt in ("the cat sat on the ", "the dog ran by the ", "the owl lives in the ", "the fox hid under the "):
+    out, passes, accepted = speculative(base, draft, prompt, 38)
+    same = out == prompt + greedy_text(base, prompt, 38)
+    print(f"{out!r} same as greedy: {same}; {passes} passes, {accepted} of {4 * passes} guesses kept")
+```
+
+```output
+draft loss 0.269, large model 0.244
+'the cat sat on the bed and the rat lay by the log and the' same as greedy: True; 10 passes, 28 of 40 guesses kept
+'the dog ran by the log and the rat lives in the log and t' same as greedy: True; 11 passes, 29 of 44 guesses kept
+'the owl lives in the pot and the hen sat by the mat and the' same as greedy: True; 10 passes, 31 of 40 guesses kept
+'the fox hid under the mat and the rat lives in the log and t' same as greedy: True; 10 passes, 30 of 40 guesses kept
+```
+
+Every output matches the large model's own greedy output. The 152 characters took 41 passes of the large model instead of 152, about 3.7 characters per pass, and 118 of the draft's 164 guesses, 72%, were kept.
+
+The toy flatters the method. The draft is nearly as good as the large model here (validation loss 0.269 against 0.244) because the toy world is easy. Real acceptance rates depend on how well the draft predicts the large model's choices, and the speed-up also depends on how much cheaper the draft is to run. If one draft guess costs a fraction $c$ of a large-model pass, a round costs about $1 + 4c$ passes' worth and here yields 3.7 characters, Without speculation those 3.7 characters would take 3.7 passes, so it pays while $1 + 4c$ stays below 3.7. In the toy, fixed overhead makes a draft pass cost nearly as much as a large one, so the toy saves large-model passes, not time. When the model samples instead of choosing greedily, a modified acceptance rule keeps the output distribution exactly the same (Leviathan et al., 2023).
+
+<figure>
+<SpeculativeFigure />
+<figcaption>Figure 4. One round of speculative decoding. The draft proposes 4 characters; the large model checks all of them in one pass, giving its own choice at each position; the run it agrees with is kept, here 3, and its own choice at the first disagreement is added, so one pass yields 4 characters.</figcaption>
+</figure>
+
+## The rest of the serving stack
+
+**FlashAttention** computes exact attention in tiles that fit in the processor's fast on-chip memory, so the full $n \times n$ grid of scores from Guide 4 is never stored ([Dao et al., 2022](https://arxiv.org/abs/2205.14135)). The grid belongs to prefill and training, where all $n$ queries run at once. There it saves memory, and because the grid is never written out and read back, it also saves memory traffic, which is time. A decode step has only one row of scores, so the grid was never its problem: its time goes to reading the cached keys and values, which tiling doesn't avoid. Guide 4 simplified attention as computing and holding the whole grid every time: the KV cache removed the recomputing, and FlashAttention removes the holding.
+
+The obstacle is softmax: it divides by a sum over a whole row of scores, so one tile can't be finished on its own. FlashAttention takes blocks of queries against blocks of keys and keeps, for each row, a running sum of exponentials and the running maximum score, subtracted before exponentiating so nothing overflows. When a later tile brings a larger maximum, the earlier sum and the partial output (the value vectors so far, each weighted by its exponential) are multiplied by $e$ to the power of the old maximum minus the new one. That one multiplication is exact: $e$ to the power of a score minus the old maximum, times that factor, is $e$ to the power of the score minus the new maximum, which is what a single pass over the whole row would have computed.
+
+Guide 6 treated decoding as one rule applied per step and only named what a serving system adds around it. Here are the common pieces:
+
+- a stop sequence, named in Guide 6, which ends the response when it appears (Guide 8's toy used " and"), and a maximum length;
+- penalties that lower the probability of tokens the response has already repeated;
+- streaming, sending each token to the user as soon as it's produced, which is why time per output token matters.
+
+Constraining output to a format such as JSON belongs to Guide 11, which also shows that a model asked to use a tool only writes the request; the application runs it. So far the model produces text. Guide 11 lets that text call tools.
