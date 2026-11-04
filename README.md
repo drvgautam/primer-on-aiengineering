@@ -36,9 +36,10 @@ along the way, and each guide builds on the ones before it.
 |---|---|---|---|
 | 7 | [Pre-training: learning from a mountain of text](https://drvgautam.github.io/primer-on-aiengineering/pretraining/) | [07-pretraining.ipynb](code/notebooks/07-pretraining.ipynb) | coming |
 | 8 | [Fine-tuning: teaching a base model new behavior](https://drvgautam.github.io/primer-on-aiengineering/finetuning/) | [08-finetuning.ipynb](code/notebooks/08-finetuning.ipynb) | coming |
+| 9 | [Alignment: teaching a model which answer is better](https://drvgautam.github.io/primer-on-aiengineering/alignment/) | [09-alignment.ipynb](code/notebooks/09-alignment.ipynb) | coming |
 
-Coming next: alignment, inference and serving, tool use and agents, and retrieval-augmented
-generation (guides 9 to 12).
+Coming next: inference and serving, tool use and agents, and retrieval-augmented generation
+(guides 10 to 12).
 
 ## Run the code
 

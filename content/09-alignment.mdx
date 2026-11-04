@@ -1,0 +1,259 @@
+---
+title: "Alignment: teaching a model which answer is better"
+guide: 9
+slug: alignment
+part: Lifecycle
+---
+import { PipelineFigure, BestOfNFigure, BreakdownFigure } from "../components/figures/alignment"
+
+# Alignment: teaching a model which answer is better
+
+Guide 8 taught a base model a task by showing it answers. This guide trains on a different kind of signal: which of two answers a person preferred. By the end you'll be able to explain why comparisons are collected, compute a preference probability from two reward scores, and describe the two classic routes from comparisons to a better model. You'll also see, with real numbers, three ways it goes wrong: a reward model that learned a shortcut, optimization that games it, and a model whose preference score looks perfect while its text falls apart.
+
+## Why "better" needs a new kind of data
+
+Recall from Guide 8 that supervised fine-tuning (SFT) trains on (prompt, response) pairs, raising the probability of the one response shown for each prompt. Guide 8 scored its toy by exact match, which is fair when each question has one right answer. Most of what people want from an assistant isn't like that. "Explain this error" has many acceptable answers. One names the likely cause and the fix; another lists every possible cause. Most readers prefer the first, but a rule that says exactly why is hard to write.
+
+Writing the best answer is slow and hard. Picking the better of two is quick, even when nobody could write the ideal answer. So instead of demonstrations, you collect **preference data**: a prompt, two responses, and which one a person preferred. Steering a model's behavior toward what people intend is called **alignment**. The word is also used for the broader question of keeping advanced AI systems' goals in line with people's, which this guide leaves aside. It covers one central technique, **preference tuning**, which trains on comparisons like these. Recall from Guide 8 that reinforcement learning trains a model from a score on its own outputs, not from example answers. In its language, the model being trained is the **policy**: its probability distribution over the next token, given the text so far. Multiply those along a response and you get a probability for the whole response.
+
+The method earned its reputation with InstructGPT. On prompts people had sent to OpenAI's API, raters preferred a 1.3-billion-parameter model, fine-tuned first on demonstrations and then on comparisons, over the 175-billion-parameter GPT-3, a model more than 100 times larger ([Ouyang et al., 2022](https://arxiv.org/abs/2203.02155)). That's a judgment of how well it followed the request, not of how much it knows; the paper also reports some losses on standard benchmarks.
+
+## The toy preference task
+
+Recall Guide 7's toy world: sentences like "the fox hid under the rug", built from six animals, four verbs, four prepositions and six places. Guide 8 mixed in sentences giving each animal a fixed home (cat hut, dog bed, rat log, fox rug, owl pot, hen mat). Guide 8's base model, 29,275 parameters, saw both. Given "the fox lay under the", it completes a place, and every place is grammatical, because the ordinary sentences paired animals and places at random.
+
+The preference here is a rule: a sentence that puts an animal in its own home is preferred to one that doesn't. "The fox lay under the rug" beats "the fox lay under the pot". Each prompt yields five pairs, the home against each of the other five places, and there are 96 prompts (6 animals × 4 verbs × 4 prepositions).
+
+The code uses PyTorch 2.14.1 from the series `requirements.txt`, as of October 2026, and its blocks run in order and share variables; run them from the repository root, so the first block finds `guides/`. The plumbing (prompts, padding, training loops) lives in `guides/preference.py`, in the repository; the blocks show the lines that carry each lesson. A response's probability is the product of the model's next-token probabilities along it (in the toy, each character is a token). Writing $x$ for the prompt (unrelated to the $x$ of Guides 1 and 6) and $\pi$ for the model's probability of a whole response, $\pi(\text{"rug"} \mid x) = p(\text{r}) \cdot p(\text{u} \mid \text{r}) \cdot p(\text{g} \mid \text{ru})$, each given $x$ too, so its log-probability is the sum of their logs. `place_dist` computes that for each of the six places after a prompt, then renormalizes over the six. `home_rate` averages the probability of each animal's own home.
+
+```python fresh
+import sys
+sys.path.insert(0, "guides")                   # run from the repository root
+import torch
+import torch.nn.functional as F
+from preference import (load_base, prompts, places, trained, rest, place_dist, home_rate, home_index,
+                        pairs_for, train_rm, rm_accuracy, rm_scores, draws, kl_to_ref,
+                        dpo, train_prompts, test_prompts, breakdown, val_loss, generate)
+
+base = load_base()                             # Guide 8's base model, from its checkpoint
+print(f"home: cat, dog, rat {home_rate(base, prompts(trained)):.1%}; fox, owl, hen {home_rate(base, prompts(rest)):.1%}")
+print({y: round(p, 3) for y, p in zip(places, place_dist(base, ["the fox lay under the "])[0].tolist())})
+```
+
+```output
+home: cat, dog, rat 18.9%; fox, owl, hen 17.1%
+{'mat': 0.244, 'log': 0.163, 'rug': 0.088, 'bed': 0.165, 'pot': 0.235, 'hut': 0.106}
+```
+
+About 1 in 6, which is chance. The base model knows every home (Guide 8 showed it completes "the fox lives in the" with "rug"), but nothing in its training made it *prefer* the home in these sentences. For the fox it gives the rug 8.8%, the least of any place.
+
+The toy has a deliberate limit. Real preferences concern whole responses, are noisy, and annotators often disagree; this one concerns a single word and follows a clear rule. That makes every effect measurable exactly, which real preference data never allows.
+
+## Reward models
+
+The first route to using comparisons is to learn a scorer from them. A **reward model** reads a prompt and a response and outputs one number, its score. Here it's the base model with its output layer swapped for a linear layer that maps the $d_{\text{model}} = 32$ numbers leaving the final layer normalization to a single number. It's read at the response's last character, the only position whose vector has seen the whole prompt and response. Recall from Guide 4 that each position carries information only from itself and earlier ones. Reward models in pipelines such as InstructGPT's are built the same way, from a pre-trained or fine-tuned language model with a one-number head (Ouyang et al., 2022).
+
+Keep $x$ for the prompt, and write $y^+$ for the preferred response, $y^-$ for the rejected one, and $R(x, y)$ for the reward model's score. The **Bradley–Terry model** ([Bradley & Terry, 1952](https://doi.org/10.2307/2334029)) turns two scores into the probability that the preferred response wins, using the logistic function $\operatorname{sigmoid}(t) = 1/(1 + e^{-t})$, which maps any number to between 0 and 1:
+
+$$
+\Pr(y^+ \succ y^-) = \operatorname{sigmoid}\big(R(x, y^+) - R(x, y^-)\big)
+$$
+
+Here $\succ$ reads "is preferred to". Only the difference matters. The loss is the negative log of this probability, the same cross-entropy as Guide 1, the negative log of the probability given to the correct answer, applied to a two-way choice: it's small when the preferred response scores well above the rejected one.
+
+```python
+def bt_loss(r_pref, r_rej):                    # −log sigmoid(R(x, y+) − R(x, y−)), averaged over pairs
+    return -F.logsigmoid(r_pref - r_rej).mean()
+
+print(f"{torch.sigmoid(torch.tensor(2.0 - 0.5)):.3f} {torch.sigmoid(torch.tensor(0.0)):.3f}")
+```
+
+```output
+0.818 0.500
+```
+
+Scores of 2.0 and 0.5 mean the first response wins with probability 0.818; equal scores mean a coin flip.
+
+Now train a reward model on pairs for three animals only, the cat, dog and rat: 48 prompts, 240 pairs, 200 steps of 32 pairs with Adam at 0.001. `train_rm` uses the `bt_loss` just defined. Then check how often it ranks the home above another place, for the animals it trained on and for the three it didn't.
+
+```python
+rm = train_rm(pairs_for(prompts(trained)), bt_loss, steps=200, seed=0)   # about 5 s
+print(f"pairs ranked right: cat, dog, rat {rm_accuracy(rm, prompts(trained)):.1%}; fox, owl, hen {rm_accuracy(rm, prompts(rest)):.1%}")
+scores = rm_scores(rm, [f"the {a} sat on the " for a in rest])          # 3 prompts × 6 places
+print({a: [places[i] for i in s.argsort(descending=True)[:3]] for a, s in zip(rest, scores)})
+```
+
+```output
+pairs ranked right: cat, dog, rat 100.0%; fox, owl, hen 21.2%
+{'fox': ['bed', 'log', 'hut'], 'owl': ['bed', 'hut', 'log'], 'hen': ['bed', 'hut', 'log']}
+```
+
+Perfect on its own animals; on the others, worse than a coin flip. Over three seeds (from `guides/preference_seeds.py`, which reruns this guide's experiments): 100%, 100% and 100% on the cat, dog and rat, and 21.2%, 20.0% and 25.4% on the fox, owl and hen.
+
+The second line shows what it learned. For all three unseen animals, its top places are bed, log and hut: the dog's, rat's and cat's homes. Ranking bed, log and hut above mat, rug and pot separates 144 of the 240 training pairs (48 prompts × the 3 pairs whose rejected place is mat, rug or pot); telling those three apart for the cat, dog and rat separates the rest. Nothing in the data ever asks it to rank the fox's, owl's or hen's homes, so for those animals it falls back on "bed, log and hut are good places".
+
+So the reward model doesn't know what people want. Its 100% on training pairs said nothing about whether it had learned the intended rule, and it still put the dog's bed above the fox's rug. A reward model is a learned approximation of human judgment, and it fails the way Guide 7's models did: it can overfit, doing far better on training data than on held-out data. It's only as good as the coverage of its preference data.
+
+## Optimizing against a reward model, and reward hacking
+
+**RLHF**, reinforcement learning from human feedback ([Christiano et al., 2017](https://arxiv.org/abs/1706.03741); Ouyang et al., 2022), uses a reward model. Guide 8 treated post-training as one fine-tune of one base model; real pipelines chain stages, and RLHF is the classic chain:
+
+1. Fine-tune a base model with SFT (Guide 8).
+2. Collect comparisons of its responses and train a reward model on them.
+3. Train the policy to produce responses the reward model scores highly, with a reinforcement-learning algorithm; InstructGPT used **PPO**, proximal policy optimization ([Schulman et al., 2017](https://arxiv.org/abs/1707.06347)). The policy samples responses and the reward model scores them. Roughly, each step then raises the log-probability of each sampled response in proportion to how much its score beats the average for that prompt: a cross-entropy step weighted by the reward.
+
+In step 3, the policy starts as a copy of the SFT model; another copy is kept frozen as the **reference model**. Write $\pi_\theta$ for the policy's probabilities over responses and $\pi_{\text{ref}}$ for the reference's. The Kullback–Leibler or **KL divergence**, $\operatorname{KL}(\pi_\theta \parallel \pi_{\text{ref}})$, measures how far one distribution has moved from another: the average, under $\pi_\theta$, of $\log(\pi_\theta / \pi_{\text{ref}})$. It's zero when they match. For two outcomes, moving from (0.5, 0.5) to (0.9, 0.1) gives $0.9 \ln 1.8 + 0.1 \ln 0.2 \approx 0.37$ nats. Here 1.8 is 0.9/0.5 and 0.2 is 0.1/0.5, and the answer is in nats because the logs are natural. The **KL penalty** subtracts $\beta$ times this divergence from the reward, so the policy maximizes reward minus $\beta \operatorname{KL}$. This $\beta$ is unrelated to layer normalization's $\beta$ in Guide 5. The reference is the model whose responses the reward model was trained to compare, so staying near it keeps the policy near text the reward model has seen and judged.
+
+<figure>
+<PipelineFigure />
+<figcaption>Figure 1. RLHF in three steps: SFT, a reward model trained on comparisons, then policy optimization against the reward model with a KL penalty to the reference model. DPO, direct preference optimization (section below), skips the reward model and trains the policy on the comparisons directly.</figcaption>
+</figure>
+
+Real RLHF can't list every possible response, so it samples and updates with PPO. With only six places per prompt the toy can list them, so best-of-n here and the exact optimum below stand in for step 3. The simplest optimizer, best-of-n, has no guard at all. **Best-of-n** samples $n$ responses (here $n$ counts samples, not sequence length) and keeps the one the reward model scores highest. The block samples places from the base model, 12 times per prompt for each $n$ (576 selections per group), and counts how often the kept place is the animal's real home.
+
+```python
+for n in (1, 2, 4, 8, 16):
+    row = []
+    for group in (trained, rest):
+        batch = prompts(group)                                      # 48 prompts
+        scores, home_idx = rm_scores(rm, batch), home_index(batch)  # 48 × 6 scores; each prompt's home
+        hits = [samples[scores[k][samples].argmax()] == home_idx[k]     # keep the highest-scoring sample; is it the home?
+                for k, sets in enumerate(draws(base, batch, n)) for samples in sets]   # 12 sets of n places per prompt
+        row.append(sum(hits).item() / len(hits))
+    print(f"n={n:2}  home chosen: cat, dog, rat {row[0]:.1%}; fox, owl, hen {row[1]:.1%}")
+```
+
+```output
+n= 1  home chosen: cat, dog, rat 22.4%; fox, owl, hen 14.2%
+n= 2  home chosen: cat, dog, rat 33.2%; fox, owl, hen 11.1%
+n= 4  home chosen: cat, dog, rat 56.1%; fox, owl, hen 2.3%
+n= 8  home chosen: cat, dog, rat 80.0%; fox, owl, hen 0.2%
+n=16  home chosen: cat, dog, rat 95.5%; fox, owl, hen 0.0%
+```
+
+<figure>
+<BestOfNFigure />
+<figcaption>Figure 2. The table as two lines against $n$ on a doubling axis. Where the reward model is right (cat, dog, rat), more samples push the home rate from 22.4% to 95.5%; where it's wrong (fox, owl, hen), the same push takes it from 14.2% to 0.0%.</figcaption>
+</figure>
+
+More optimization makes the reward model happier every time. Where the reward model is right, the home rate climbs. Where it's wrong, optimization does worse than doing nothing, because it finds exactly the responses the flaw rewards. This is **reward hacking**, a case of Goodhart's law: a measure that becomes a target stops being a good measure. At scale it's been measured directly: push a policy against a small learned reward model, and its score under a stronger "gold" reward model standing in for people rises, then falls ([Gao et al., 2023](https://arxiv.org/abs/2210.10760)).
+
+A larger $n$ pushes harder toward whatever the reward model scores highest, and further from what the base model would usually say. The KL penalty is the dial that limits this. For a fixed set of responses, the policy that maximizes reward minus $\beta \operatorname{KL}$ has an exact form: $\pi^* \propto \pi_{\text{ref}} \, e^{R/\beta}$, the reference's probabilities reweighted by the exponentiated reward. The toy has only six responses per prompt, so the block computes it directly for four values of $\beta$, in log space so that tiny probabilities don't turn the KL into `nan`.
+
+```python
+for beta in (10, 3, 1, 0.3):
+    row = []
+    for group in (trained, rest):
+        batch = prompts(group)
+        ref_logp, R = place_dist(base, batch).log(), rm_scores(rm, batch)   # log π_ref and R, 48 × 6 each
+        logp = torch.log_softmax(ref_logp + R / beta, dim=-1)       # log π*, where π* ∝ π_ref e^(R/β)
+        row += [logp.exp()[torch.arange(len(batch)), home_index(batch)].mean().item(), kl_to_ref(logp, ref_logp)]
+    print(f"beta {beta:4}: cat, dog, rat {row[0]:.1%} (KL {row[1]:.2f}); fox, owl, hen {row[2]:.1%} (KL {row[3]:.2f})")
+```
+
+```output
+beta   10: cat, dog, rat 34.8% (KL 0.08); fox, owl, hen 13.7% (KL 0.04)
+beta    3: cat, dog, rat 76.6% (KL 0.83); fox, owl, hen 5.8% (KL 0.52)
+beta    1: cat, dog, rat 99.6% (KL 1.66); fox, owl, hen 0.1% (KL 1.68)
+beta  0.3: cat, dog, rat 100.0% (KL 1.69); fox, owl, hen 0.0% (KL 1.80)
+```
+
+A large $\beta$ trusts the reward model little and moves least: 34.8% and 13.7%, at a KL of only 0.08 and 0.04 nats. A small one follows it all the way, flaws included. The penalty can't fix a wrong reward model. It only limits how far you follow one.
+
+<details>
+<summary>Where $\pi^* \propto \pi_{\text{ref}} e^{R/\beta}$ comes from, and what real RLHF does instead</summary>
+
+For one prompt, the objective is the sum over responses of $\pi(y)$ times $R(y) - \beta \log(\pi(y)/\pi_{\text{ref}}(y))$, with the probabilities constrained to add to 1. Setting the derivative with respect to each $\pi(y)$ to the same constant gives $R(y) - \beta \log(\pi(y)/\pi_{\text{ref}}(y))$ equal for every $y$, so $\log \pi(y)$ is $\log \pi_{\text{ref}}(y) + R(y)/\beta$ plus a constant. Exponentiate and normalize, and that's the formula: a softmax of $\log \pi_{\text{ref}} + R/\beta$.
+
+Best-of-n and this closed form stand in for reinforcement learning here because the toy's responses can be listed. A real model's responses can't: there are more possible paragraphs than atoms in the universe. So real RLHF samples responses, scores them, and nudges the policy's weights with PPO or a similar algorithm. Step 3 said each response is compared with the average for its prompt; that was a simplification. PPO compares against value estimates (predictions of the reward a partial response will earn, unrelated to attention's values in Guide 4), token by token, and clips each update so the policy can't move far in one step. Scoring against the prompt's other samples is what GRPO does (section 7). The target is the same KL-regularized objective; this guide doesn't go further into the algorithm.
+
+</details>
+
+## Direct preference optimization
+
+Turn the closed form around, and you can write the reward in terms of the best policy $\pi^*$: $R$ is $\beta \log(\pi^*/\pi_{\text{ref}})$, plus $\beta \log Z(x)$, where $Z(x)$ is the normalizing sum of $\pi_{\text{ref}} e^{R/\beta}$ over all responses, which depends on the prompt but not the response, so it's the same for $y^+$ and $y^-$. Now let the policy being trained stand in for $\pi^*$: $\beta \log(\pi_\theta/\pi_{\text{ref}})$ is its implied reward. Put that into the Bradley–Terry loss, and the constant cancels in the difference. What's left is a loss on the policy alone, and the policy whose implied reward best fits the comparisons is, by the closed form, the KL-penalized optimum for that reward. So there's no need to learn $R$ separately. **DPO**, direct preference optimization ([Rafailov et al., 2023](https://arxiv.org/abs/2305.18290)), trains on it, with no separate reward model and no reinforcement-learning loop.
+
+The loss uses the policy's probability of each response, $\pi_\theta(y \mid x)$, the reference model's, $\pi_{\text{ref}}(y \mid x)$, and the same $\beta$ as the KL penalty (it acts like a temperature in $e^{R/\beta}$; recall from Guide 6 that dividing logits by a temperature flattens or sharpens a distribution):
+
+$$
+\mathcal{L}_{\text{DPO}} = -\log \operatorname{sigmoid}\!\Big(\beta\big[(\log\pi_\theta(y^+ \mid x) - \log\pi_{\text{ref}}(y^+ \mid x)) - (\log\pi_\theta(y^- \mid x) - \log\pi_{\text{ref}}(y^- \mid x))\big]\Big)
+$$
+
+In words: raise the preferred response's probability relative to the starting model, lower the rejected one's, and stop caring once the gap is large. $\beta$ sets how large is enough. It's Bradley–Terry with $\beta \log(\pi_\theta/\pi_{\text{ref}})$ in place of the reward. What DPO removes is the reward model and the sampling loop, not the human comparisons: the run below still trains on 270 of them.
+
+```python
+def dpo_loss(pol_pref, pol_rej, ref_pref, ref_rej, beta):   # sequence log-probabilities, one per pair
+    margin = (pol_pref - ref_pref) - (pol_rej - ref_rej)     # how much more the policy favors y+ than the reference does
+    return -F.logsigmoid(beta * margin).mean()
+```
+
+This time the pairs cover **all six** animals, but only some phrasings: the first three verbs with the first three prepositions, 9 of the 16 combinations (54 prompts, 270 pairs). The test uses the other 7 combinations, which DPO never trains on. Gentle settings: learning rate 0.0001, 100 steps, $\beta = 0.1$. `dpo` loads two copies of the base model, a policy to train and a frozen reference, and calls `dpo_loss` on each batch.
+
+```python
+gentle = dpo(pairs_for(train_prompts), dpo_loss, beta=0.1, steps=100, lr=0.0001, seed=0)   # about 4 s
+for name, model in (("base", base), ("gentle DPO", gentle)):
+    print(f"{name:10}  home, unseen phrasings {home_rate(model, test_prompts):.1%}  validation loss {val_loss(model):.3f}")
+```
+
+```output
+base        home, unseen phrasings 17.7%  validation loss 0.244
+gentle DPO  home, unseen phrasings 78.7%  validation loss 0.357
+```
+
+The preference generalized to phrasings DPO never saw: from 17.7% to 78.7%, and to 81.2% and 78.4% in seeds 1 and 2. It cost some general fluency. Validation loss on ordinary world text rose from 0.244 to 0.357 (0.355 and 0.358 in the other seeds), the same forgetting as Guide 8's fine-tune. With $\beta = 0.5$, the results were a little better on both counts: 85.6%, 85.2% and 85.2%, with validation loss 0.316 to 0.325.
+
+The shortcut comes back if the data allows it. DPO on pairs for only the cat, dog and rat lifts those three to 99.7% but drops the fox, owl and hen to about 10% (9.5% to 10.2% over three seeds), below the base model's 17.1%.
+
+## When the score lies: over-optimization
+
+Now the same DPO run with aggressive settings: learning rate 0.001 and 200 steps. By the preference measure, the home rate among the six places, it's perfect, or nearly. The block also splits each model's probability after an unseen prompt three ways: the preferred place, the other five places, and anything else. "Anything else" is 1 minus the six places' total, the chance that the next characters don't spell a place at all.
+
+```python
+aggressive = dpo(pairs_for(train_prompts), dpo_loss, beta=0.1, steps=200, lr=0.001, seed=0)   # about 7 s
+for name, model in (("base", base), ("gentle DPO", gentle), ("aggressive", aggressive)):
+    preferred, other, rest_of = breakdown(model, test_prompts)
+    print(f"{name:10}  home {home_rate(model, test_prompts):6.1%}  |  preferred {preferred:5.1%}  other places {other:5.1%}  anything else {rest_of:5.1%}")
+print(f"aggressive validation loss {val_loss(aggressive):.3f}")
+print(repr(generate(aggressive, "the fox lay under the", 12)))
+print(repr(generate(aggressive, "the ", 60, seed=0)))
+```
+
+```output
+base        home  17.7%  |  preferred 17.6%  other places 82.0%  anything else  0.4%
+gentle DPO  home  78.7%  |  preferred 47.6%  other places 17.2%  anything else 35.2%
+aggressive  home 100.0%  |  preferred 30.2%  other places  0.0%  anything else 69.8%
+aggressive validation loss 2.187
+'the fox lay under therer ehehet a'
+'the btd the de oty the het and the rd oy the he hen and the cat '
+```
+
+The "home" column renormalizes over the six places for each prompt, then averages; the other three average the raw probabilities, so for the gentle run 78.7% isn't 47.6 / (47.6 + 17.2).
+
+<figure>
+<BreakdownFigure />
+<figcaption>Figure 3. Where the probability goes after an unseen prompt (seed 0): the preferred place, the other five places, and anything else. Base: 17.6%, 82.0%, 0.4%. Gentle DPO: 47.6%, 17.2%, 35.2%. Aggressive DPO: 30.2%, 0.0%, 69.8%.</figcaption>
+</figure>
+
+Among the six places, the aggressive model puts essentially all its probability on the home: 100.0%, and 95.6% and 100.0% in the other seeds. But the loss pushed the rejected places to zero, and most of their probability went to strings that aren't places, or words. Even the gentle run leaked a third of its probability that way. Asked to continue "the fox lay under the", the aggressive model writes "rer ehehet a", and sampling from "the " gives near-words. Its validation loss on world text is 2.187 (2.124 and 2.212 in the other seeds), about nine times the base model's 0.244.
+
+The preference measure can't see any of this. It only compares the preferred response with the rejected one, and both can fall as long as the rejected one falls faster. Researchers have documented DPO lowering the probability of preferred responses below the starting model's, not just the rejected ones', and moving it to other responses, sometimes ones with the opposite meaning ([Razin et al., 2025](https://arxiv.org/abs/2410.08847)). The toy shows a milder form: the preferred place still ends above the base model's 17.6%, but it gains only 30.2% under the aggressive run, against 47.6% under the gentle one.
+
+This is **over-optimization**, pushing on a proxy past the point where it tracks what you wanted. Reward hacking is the case where the proxy is a learned reward, and the best-of-n table showed it from the other side: a reward score that rose while the real outcome collapsed. A higher preference score didn't mean a better model: the aggressive run beat the gentle one on the preference measure, 100% against 78.7%, and was worse by everything else the block measured. So check the outputs and general ability, not just the score you optimized.
+
+## Variations, and what alignment doesn't do
+
+Two relatives change where the comparisons or rewards come from: a model's own judgments, or an automatic check.
+
+<details>
+<summary>Other preference methods (dated examples)</summary>
+
+- **AI feedback.** Constitutional AI replaces human comparisons for harmlessness with a model's own judgments, guided by a short list of written principles, while keeping human labels for helpfulness (RLAIF, reinforcement learning from AI feedback; [Bai et al., 2022](https://arxiv.org/abs/2212.08073)).
+- **Rewards from checks.** For tasks with a checkable answer, such as a math problem, the reward can come from an automatic check instead of a learned model. DeepSeek-R1-Zero was trained this way, and DeepSeek-R1's reasoning stages used rule-based answer checks ([DeepSeek-AI, 2025](https://arxiv.org/abs/2501.12948)). Both used GRPO, group relative policy optimization: a PPO variant that scores each sampled response against the others for the same prompt instead of using a learned value estimate. Its authors introduced it training against a learned reward model ([Shao et al., 2024](https://arxiv.org/abs/2402.03300)). With a check in place of a reward model there's no reward model to hack, though a checker can still be gamed if it checks less than it seems to.
+
+</details>
+
+Preference tuning mostly reweights responses the model can already produce, so the DPO model above picked homes it learned in pre-training and learned nothing new about them. That's why it can't add facts or guarantee truthfulness, and why it doesn't stop **hallucination**, fluent output that states something false as fact. The change lives in the weights, so every response carries it. Deployed systems sometimes add input and output filters as well, but those are separate machinery.
+
+The reweighting can help: InstructGPT scored better than GPT-3 on a truthfulness benchmark (Ouyang et al., 2022). It can also add failure modes. Models trained on human approval learn to tell people what they want to hear, called **sycophancy**, likely in part because raters sometimes prefer agreeable answers over correct ones ([Sharma et al., 2023](https://arxiv.org/abs/2310.13548)). Guide 6 said a probability is the model's estimate of how text continues; Guide 8 showed SFT breaks that, and preference tuning moves further from it. One visible cost is calibration. Recall from Guide 6 that a calibrated model is right about 70% of the time when it says 0.7. The GPT-4 report found its base model well calibrated on a multiple-choice benchmark and the post-trained model noticeably less so ([OpenAI, 2023](https://arxiv.org/abs/2303.08774)).
+
+Guide 10 covers serving the trained model efficiently. For facts a model never saw, Guide 12 shows how retrieval supplies them, and why that doesn't end hallucination either.

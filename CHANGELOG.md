@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 (2026-11-04)
+
+Guide 9 joins Part 2, "Lifecycle":
+
+- Guide 9, alignment: preference data, reward models and the Bradley–Terry loss, best-of-n against a reward model and reward hacking, direct preference optimization (DPO) derived and run, over-optimization, and what alignment doesn't do
+- Notebook `09-alignment.ipynb`, checked in CI like the others. It starts from Guide 8's checkpoint (`code/guides/checkpoints/finetune-base.pt`), and its output was byte-identical on every processor and thread setup tried, so no block needs the varies flag. `code/guides/preference_seeds.py` reruns the experiments over three seeds (about a minute). Notebook 08 links forward to it
+- Guide 9 in the PDF book, with its figures, and its terms in the glossary and notation appendices
+
 ## 0.4.0 (2026-11-02)
 
 Lecture slides, starting with Guide 1:

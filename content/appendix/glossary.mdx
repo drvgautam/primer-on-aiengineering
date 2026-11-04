@@ -1,6 +1,6 @@
 # Glossary
 
-One term per concept, as used in Guides 1–8. Declared synonyms are other names you'll meet in the literature.
+One term per concept, as used in Guides 1–9. Declared synonyms are other names you'll meet in the literature.
 
 | Term (used in the guides) | Definition | Declared synonyms | Guide |
 |---|---|---|---|
@@ -9,6 +9,7 @@ One term per concept, as used in Guides 1–8. Declared synonyms are other names
 | residual stream | A token's running vector, which every attention step and MLP reads and adds to; all tokens' streams together are the $n \times d_{\text{model}}$ matrix $X$. | hidden states (per position); stream | 5 |
 | logits | The network's raw output scores, one per option, before softmax; in an LLM, one per vocabulary entry. | — | 1 |
 | post-training | Everything after pre-training that shapes behavior: SFT, preference tuning, and reinforcement-learning stages. | — | 8 |
+| preference tuning | Training on comparisons between outputs (RLHF, DPO and related methods). | alignment training | 9 |
 | parameter | One of the adjustable numbers that set what a network computes; all of them together are $\theta$. | knob (informal) | 1 |
 | weight | The number a neuron multiplies one of its inputs by; an entry of $W$. | — | 1 |
 | bias | The number a neuron adds after its weighted sum; an entry of $b$. | — | 1 |
@@ -177,3 +178,26 @@ One term per concept, as used in Guides 1–8. Declared synonyms are other names
 | full fine-tuning | Fine-tuning that updates every parameter of the model, as opposed to LoRA. | — | 8 |
 | freeze | Exclude parameters from training so they keep their values (`requires_grad = False`); LoRA freezes the whole base model. | frozen | 8 |
 | "where" task | In Guide 8's toy, a sentence followed by " where " as the prompt, with its place phrase plus " and" as the response. | — | 8 |
+| preference data | A prompt, two responses, and which one a person preferred. | comparisons; preference pairs | 9 |
+| alignment | Training a model's behavior toward what people intend; in practice mostly preference tuning. Also used for the broader question of AI goals, which the series leaves aside. | — | 9 |
+| policy | In RL language, the model being trained: the rule that picks the next token given the text so far; probabilities $\pi_\theta$. | — | 9 |
+| reward model | A model that reads a prompt and a response and outputs one score $R(x, y)$, trained on preference data with the Bradley–Terry loss. | scorer (informal) | 9 |
+| Bradley–Terry model | The probability that $y^+$ beats $y^-$ is $\operatorname{sigmoid}(R(x, y^+) - R(x, y^-))$; its negative log is the reward model's loss. | — | 9 |
+| RLHF | Reinforcement learning from human feedback: SFT, a reward model trained on comparisons, then RL against the reward model with a KL penalty. | — | 9 |
+| PPO | Proximal policy optimization, RLHF's usual RL algorithm (InstructGPT's); roughly, a reward-weighted cross-entropy step on sampled responses, with value estimates. | — | 9 |
+| reference model | A frozen copy of the starting model ($\pi_{\text{ref}}$): the SFT model in RLHF, the base model in Guide 9's toy; the KL penalty and DPO measure the policy against it. | starting model | 9 |
+| KL divergence | $\operatorname{KL}(p \parallel q)$, the average under $p$ of $\log(p/q)$: how far distribution $p$ has moved from $q$; zero when they match. | KL | 9 |
+| KL penalty | $\beta$ times the KL divergence from the reference model, subtracted from the reward. | — | 9 |
+| best-of-n | Sample $n$ responses and keep the one the reward model scores highest. | — | 9 |
+| reward hacking | Over-optimization against a learned reward: the score rises while the real outcome gets worse; a case of Goodhart's law. | reward-model over-optimization | 9 |
+| over-optimization | Pushing on a proxy (reward or preference score) past the point where it tracks what you wanted; reward hacking is the case where the proxy is a reward model. | — | 9 |
+| DPO | Direct preference optimization: trains the policy on preference pairs with a loss built from $\log(\pi_\theta / \pi_{\text{ref}})$, with no reward model or RL loop. | — | 9 |
+| Constitutional AI | Preference tuning with AI feedback guided by written principles (RLAIF, reinforcement learning from AI feedback). | RLAIF (the training method) | 9 |
+| sycophancy | Telling people what they want to hear, learned from human approval. | — | 9 |
+| value estimate (named only) | In RL, a learned prediction of the reward a partial response will earn, used to give credit to tokens; unrelated to attention's values (Guide 4). | — | 9 |
+| hallucination | Fluent output that states something false or unsupported as fact. | — | 9 |
+| GRPO (optional) | Group relative policy optimization: a PPO variant that scores each sampled response against the others for the same prompt instead of using a value estimate. | — | 9 |
+| Goodhart's law | A measure that becomes a target stops being a good measure. | — | 9 |
+| home rate | In Guide 9's toy, the probability of an animal's own home after renormalizing over the six places, averaged over prompts; the preference measure. | preference measure; preference score | 9 |
+| response probability | A model's probability of a whole response: the product of its next-token probabilities along it; its log is the sum of their logs. | sequence log-probability | 9 |
+| sigmoid | The logistic function $1/(1+e^{-t})$, mapping any number into (0, 1). | logistic function | 9 |

@@ -15,6 +15,7 @@ body:
         - "6. Next-token prediction"
         - "7. Pre-training"
         - "8. Fine-tuning"
+        - "9. Alignment"
         - "Other / several"
     validations:
       required: true
