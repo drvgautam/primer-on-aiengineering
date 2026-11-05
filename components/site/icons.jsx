@@ -16,6 +16,10 @@ export const Download = (p) => (
 export const Notebook = (p) => (
   <svg {...base} {...p}><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8l3 3-3 3M13 15h3" /></svg>
 )
+export const Sheet = (p) => (
+  // a one-page sheet with a small chart: the visual guide
+  <svg {...base} {...p}><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M8.5 17v-3M12 17v-6M15.5 17v-4.5M8.5 7h7" /></svg>
+)
 export const Arrow = (p) => (
   <svg {...base} {...p}><path d="M5 12h14M13 6l6 6-6 6" /></svg>
 )

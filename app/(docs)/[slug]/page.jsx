@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { allGuides, colabUrl, notebookUrl, release, repoUrl, slidesUrl, visualUrl } from "../../../lib/guides"
-import { Arrow, ArrowLeft, Clock, Flag, Notebook } from "../../../components/site/icons"
+import { Arrow, ArrowLeft, Clock, Flag, Notebook, Sheet } from "../../../components/site/icons"
 import { CodeTools, ReadingProgress, Toc } from "../../../components/site/reading"
 
 export const dynamicParams = false
@@ -38,6 +38,11 @@ export default async function GuidePage({ params }) {
             <a href={colabUrl(g)} className="kicker-action">
               <Notebook width={15} height={15} /> Run the code in Colab
             </a>
+            {visualUrl(g) ? (
+              <a href={visualUrl(g)} className="kicker-action">
+                <Sheet width={15} height={15} /> Visual guide (PDF)
+              </a>
+            ) : null}
           </p>
           <Toc collapsible />
         </header>
