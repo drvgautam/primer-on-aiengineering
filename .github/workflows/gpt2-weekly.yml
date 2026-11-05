@@ -24,7 +24,7 @@ jobs:
             code/requirements.txt
             tools/requirements.txt
       - run: pip install -r tools/requirements.txt
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/llm-guides
           key: gpt2-607a30d
