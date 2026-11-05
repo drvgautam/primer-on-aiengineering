@@ -149,6 +149,17 @@ body:has(.poster) main { max-width: none; padding: 0; margin: 0; }
 .checklist li { display: grid; grid-template-columns: 5.5mm 1fr; align-items: baseline; }
 .checklist .watch { display: block; margin-top: 1mm; padding-top: 2mm; border-top: 0.3mm solid var(--p-rule); color: var(--p-ink-soft); }
 
+/* Guide 1: the training loop as chips, and what carries forward to LLMs */
+.loop { display: flex; align-items: center; gap: 1.6mm; font-size: 10.5pt; color: var(--p-muted); }
+.loop span { background: var(--p-accent-soft); color: var(--p-accent); font-weight: 600; border-radius: 1.2mm; padding: 0.5mm 2mm; }
+.loop b { margin-left: 2mm; color: var(--p-ink); font-weight: 700; }
+.carry { display: grid; gap: 1.5mm; margin: 0; padding: 0; list-style: none; font-size: 10.5pt; }
+.carry li { display: grid; grid-template-columns: 29mm 1fr auto; gap: 2mm; align-items: baseline; }
+.carry li span:first-child { color: var(--p-muted); }
+.carry li span:nth-child(2) { font-weight: 600; }
+.carry li span:nth-child(2)::before { content: "→ "; color: var(--p-muted); font-weight: 400; }
+.carry i { font-style: normal; font-size: 9.5pt; color: var(--p-accent); font-weight: 600; white-space: nowrap; }
+
 /* ---------------------------------------------------------------- footer */
 .poster-foot { margin-top: auto; display: grid; grid-template-columns: auto 1fr auto; gap: 5mm; align-items: center;
   border-top: 0.3mm solid var(--p-rule-strong); padding-top: 3mm; font-size: 9.5pt; color: var(--p-muted); }

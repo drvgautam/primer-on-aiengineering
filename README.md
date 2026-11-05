@@ -16,7 +16,7 @@ along the way, and each guide builds on the ones before it.
 | **As a PDF** | all guides in one book: download it from the [latest release](https://github.com/drvgautam/primer-on-aiengineering/releases/latest) |
 | **As notebooks** | one Jupyter notebook per guide in [`code/notebooks/`](code/notebooks/), holding every code block in the guide's order |
 | **As lecture slides** | a LaTeX Beamer deck per guide, for teaching or review, as a lecture PDF and a handout (Guides 1 and 2 so far; the rest are on the way) |
-| **As visual guides** | one A3 sheet per guide that shows its whole idea at a glance, to print or pin up (from Guide 8; the rest are on the way) |
+| **As visual guides** | one A3 sheet per guide that shows its whole idea at a glance, to print or pin up (Guides 1 and 8 so far; the rest are on the way) |
 
 ## The guides
 
@@ -24,7 +24,7 @@ along the way, and each guide builds on the ones before it.
 
 | # | Guide | Notebook | Slides | Visual guide |
 |---|---|---|---|---|
-| 1 | [Neural networks: a function with knobs](https://drvgautam.github.io/primer-on-aiengineering/neural-networks/) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) | [lecture](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-slides.pdf) · [handout](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-handout.pdf) | coming |
+| 1 | [Neural networks: a function with knobs](https://drvgautam.github.io/primer-on-aiengineering/neural-networks/) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) | [lecture](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-slides.pdf) · [handout](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-handout.pdf) | [sheet](https://drvgautam.github.io/primer-on-aiengineering/visuals/01-neural-networks.pdf) |
 | 2 | [Tokenization: how text becomes numbers](https://drvgautam.github.io/primer-on-aiengineering/tokenizer/) | [02-tokenizer.ipynb](code/notebooks/02-tokenizer.ipynb) | [lecture](https://drvgautam.github.io/primer-on-aiengineering/slides/02-tokenizer-slides.pdf) · [handout](https://drvgautam.github.io/primer-on-aiengineering/slides/02-tokenizer-handout.pdf) | coming |
 | 3 | [Embeddings: giving every token a vector](https://drvgautam.github.io/primer-on-aiengineering/embeddings/) | [03-embeddings.ipynb](code/notebooks/03-embeddings.ipynb) | coming | coming |
 | 4 | [Attention: letting tokens look at each other](https://drvgautam.github.io/primer-on-aiengineering/attention/) | [04-attention.ipynb](code/notebooks/04-attention.ipynb) | coming | coming |

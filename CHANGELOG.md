@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2 (2026-11-05)
+
+- The visual guide for Guide 1, neural networks: one A3 sheet in four steps (a neuron and why ReLU's bend makes layers worth stacking; the forward pass in shapes, softmax and cross-entropy; gradient descent and backpropagation on the guide's paper examples; the training run against the loss floor, and what carries forward to LLMs). Every number is the guide's; three cold-context review rounds. On the site at `/visuals/`, linked from the guide page and the README, and attached to the release
+
 ## 0.7.1 (2026-11-05)
 
 Lecture slides for Guide 2:
