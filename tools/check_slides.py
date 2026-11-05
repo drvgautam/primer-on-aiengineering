@@ -24,10 +24,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
+from alignment import glossary_terms, numbers, term_ok  # noqa: E402
 from mdxparse import parse  # noqa: E402
 
 SLIDES = ROOT / "slides"
-NUMBER = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.\d+|\d+)")
 
 
 def released(release):
@@ -93,42 +93,6 @@ def deck_text_for_numbers(tex):
     tex = re.sub(r"primer[A-Za-z]+!\d+", " ", tex)                     # colour mixes
     tex = re.sub(r"\\begin\{(columns|frame|tabular)\}(\[[^\]]*\])?(\{[^}]*\})?", " ", tex)
     return tex
-
-
-def numbers(text):
-    out = set()
-    for m in NUMBER.finditer(text):
-        v = m.group(1).replace(",", "")
-        try:
-            out.add(float(v))
-        except ValueError:
-            pass
-    return out
-
-
-def glossary_terms(top):
-    md = (ROOT / "content" / "appendix" / "glossary.mdx").read_text()
-    terms = set()
-    for line in md.splitlines():
-        if not line.startswith("|") or line.startswith("|---"):
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if len(cells) < 4 or not re.search(r"\d", cells[3]):
-            continue
-        if int(re.search(r"\d+", cells[3]).group()) > top:
-            continue
-        terms.add(cells[0].lower())
-        for syn in re.split(r"[;,]", cells[2]):
-            syn = re.sub(r"\(.*?\)", "", syn).strip().lower()
-            if syn and syn != "—":
-                terms.add(syn)
-    return terms
-
-
-def term_ok(t, terms):
-    t = re.sub(r"\\[a-z]+\{?|[{}$]", "", t).strip().lower()
-    cands = {t, t.rstrip("s"), re.sub(r"\s*\(.*?\)", "", t)}
-    return any(c in terms for c in cands)
 
 
 def check(entry):

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 (2026-11-05)
+
+Visual guides, starting with Guide 8:
+
+- A one-page visual guide per guide: an A3 sheet that gives the guide's whole idea at a glance, in four numbered steps, drawn from the guide's own example, experiment and measured numbers. The first sheet is Guide 8, fine-tuning
+- Each sheet is printed from the site (`/visual/<slug>/`) as a vector PDF and a PNG (`tools/build-visuals.mjs`). `tools/check_visuals.py` checks it against its guide in CI: every number is in the guide, highlighted terms are in the glossary, one page with nothing overflowing, no text below 9 pt, WCAG AA contrast, at most 450 words and no citations (the guide carries its sources)
+- The sheets are on the site (`/visuals/`), linked from the guide page and from a new Visual guide column in the README's guide tables, and attached to the release
+- `tools/alignment.py`: the number and glossary checks the slides and the visual guides share
+
 ## 0.6.0 (2026-11-04)
 
 Guide 10 joins Part 2, "Lifecycle":

@@ -48,10 +48,13 @@ syncs them back. You'll be credited in the changelog either way.
 5. If the guide has a lecture deck (`slides/decks/NN-<slug>.tex`), run
    `node tools/build-slides.mjs <slug> && python tools/check_slides.py <slug>`; see
    `slides/README.md`.
-6. Update the guide table in `README.md` (its Slides column too), the guide dropdown in
+6. If the guide has a visual guide (`components/visual/<slug>.jsx`), run
+   `npm run build && node tools/build-visuals.mjs <slug> && python tools/check_visuals.py <slug>`.
+7. Update the guide table in `README.md` (its Slides and Visual guide columns too), the guide dropdown in
    `.github/ISSUE_TEMPLATE/erratum.yml`, and `CHANGELOG.md`. Bump `version` in `release.json`
    and `package.json`.
-7. Tag `vX.Y.Z`. CI builds the PDF book and the slides and attaches them to the release.
+8. Tag `vX.Y.Z`. CI builds the PDF book, the slides and the visual guides and attaches them to the
+   release.
 
 ## Code of conduct
 

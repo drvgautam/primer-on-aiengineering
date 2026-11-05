@@ -1,0 +1,170 @@
+/* One-page visual guides (/visual/<slug>/), printed to A3 by tools/build-visuals.mjs.
+   Sizes are in mm and pt so the sheet is exact on paper: nothing smaller than 9 pt. */
+
+/* Fonts: the site's typefaces as static files (@fontsource, pinned). The site's own fonts are
+   variable, and Chromium prints variable fonts into a PDF as Type 3 glyphs: uneven spacing and
+   broken text extraction. Symbols outside the latin files (✓ ✗ → ≠ ≈) fall back to DejaVu Sans. */
+@font-face { font-family: "Poster Sans"; font-weight: 400; font-style: normal; src: url("../../node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Sans"; font-weight: 500; font-style: normal; src: url("../../node_modules/@fontsource/inter/files/inter-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Sans"; font-weight: 600; font-style: normal; src: url("../../node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Sans"; font-weight: 700; font-style: normal; src: url("../../node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Sans"; font-weight: 800; font-style: normal; src: url("../../node_modules/@fontsource/inter/files/inter-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Mono"; font-weight: 400; font-style: normal; src: url("../../node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Mono"; font-weight: 600; font-style: normal; src: url("../../node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Mono"; font-weight: 700; font-style: normal; src: url("../../node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Serif"; font-weight: 400; font-style: normal; src: url("../../node_modules/@fontsource/source-serif-4/files/source-serif-4-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poster Serif"; font-weight: 400; font-style: italic; src: url("../../node_modules/@fontsource/source-serif-4/files/source-serif-4-latin-400-italic.woff2") format("woff2"); }
+
+@page { size: 297mm 420mm; margin: 0; }
+
+/* The sheet stands alone: no site header, light colours whatever the reader's theme. */
+body:has(.poster) { background: #e9e6df; margin: 0; }
+body:has(.poster) .site-header, body:has(.poster) .skip-link { display: none; }
+body:has(.poster) main { max-width: none; padding: 0; margin: 0; }
+
+.poster {
+  --sans: "Poster Sans", "DejaVu Sans", sans-serif;
+  --serif: "Poster Serif", "DejaVu Serif", serif;
+  --mono: "Poster Mono", "DejaVu Sans Mono", monospace;
+  /* the series palette, fixed to light */
+  --p-paper: #fbfaf7;
+  --p-card: #ffffff;
+  --p-ink: #1b1b1f;
+  --p-ink-soft: #3d3d45;
+  --p-muted: #5f5f6a;
+  --p-rule: #e4e1d9;
+  --p-rule-strong: #cfcbc0;
+  --p-accent: #1e3a5f;      /* navy: distinct from the fine-tuned model's indigo */
+  --p-accent-soft: #e9eef5;
+  /* semantic colours, the same on every sheet */
+  --p-pass: #0f7b4a;
+  --p-pass-soft: #e6f4ec;
+  --p-fail: #b91c1c;
+  --p-fail-soft: #fdecec;
+  /* one colour per model, kept across the sheet */
+  --m-base: #6b6b76;
+  --m-tuned: #4338ca;
+  --m-scratch: #b45309;
+  --m-replay: #0f7b4a;
+  --m-lora: #0e7490;
+
+  width: 297mm;
+  height: 420mm;
+  box-sizing: border-box;
+  padding: 12mm 14mm 9mm;
+  margin: 0 auto;
+  background: var(--p-paper);
+  color: var(--p-ink);
+  font-family: var(--sans);
+  font-size: 10.5pt;
+  line-height: 1.32;
+  display: flex;
+  flex-direction: column;
+  gap: 6.5mm;
+  overflow: hidden;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.poster *, .poster *::before, .poster *::after { box-sizing: border-box; }
+.poster p { margin: 0; }
+.poster :where(code, .mono) { font-family: var(--mono); font-size: 10pt; }
+
+/* ---------------------------------------------------------------- masthead */
+.poster-head { border-bottom: 0.5mm solid var(--p-ink); padding-bottom: 3.4mm; }
+.poster-kicker { font-size: 9.5pt; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--p-accent); }
+.poster-title { font-size: 32pt; line-height: 1.05; font-weight: 800; letter-spacing: -0.025em; margin: 1mm 0 1.6mm; }
+.poster-sub { font-size: 17pt; font-weight: 500; letter-spacing: -0.01em; color: var(--p-ink-soft); margin-left: 4mm; }
+.poster-thesis { font-family: var(--serif); font-size: 17pt; line-height: 1.3; color: var(--p-ink); }
+.poster-thesis em { color: var(--p-accent); font-style: italic; font-weight: 400; }
+
+/* ---------------------------------------------------------------- steps and panels */
+.band { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3mm 3.2mm; flex: none; }
+.band-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 2.8mm; }
+.band-num { width: 7mm; height: 7mm; border-radius: 50%; background: var(--p-accent); color: #fff;
+  display: grid; place-items: center; font-size: 12pt; font-weight: 700; flex: none; }
+.band-title { font-size: 15pt; font-weight: 700; letter-spacing: -0.012em; }
+.band-sub { font-size: 10.5pt; color: var(--p-muted); }
+.band-rule { flex: 1; height: 0.3mm; background: var(--p-rule-strong); }
+
+.panel { background: var(--p-card); border: 0.3mm solid var(--p-rule); border-radius: 2.6mm;
+  padding: 2.8mm 3.2mm 2.6mm; display: flex; flex-direction: column; gap: 2.2mm; min-width: 0; overflow: hidden; }
+.panel-title { font-size: 12.5pt; font-weight: 700; letter-spacing: -0.008em; line-height: 1.22; }
+.panel-art { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.6mm; min-height: 0; }
+.panel-art svg { display: block; width: 100%; height: auto; overflow: visible; }
+.panel-note { font-size: 10.5pt; color: var(--p-ink-soft); border-top: 0.3mm solid var(--p-rule); padding-top: 1.8mm; }
+.span-4 { grid-column: span 4; } .span-5 { grid-column: span 5; } .span-6 { grid-column: span 6; }
+.span-7 { grid-column: span 7; } .span-8 { grid-column: span 8; }
+.panel.top .panel-art { justify-content: flex-start; } .span-12 { grid-column: span 12; }
+
+/* ---------------------------------------------------------------- small parts */
+.term { font-weight: 700; color: var(--p-accent); }
+.swatch { display: inline-block; width: 3.2mm; height: 3.2mm; border-radius: 0.7mm; vertical-align: -0.4mm; margin-right: 1.4mm; }
+.mark-pass { color: var(--p-pass); font-weight: 800; }
+.mark-fail { color: var(--p-fail); font-weight: 800; }
+.poster .katex { font-size: 1.15em; }
+.formula { text-align: center; margin-top: -1mm !important; }
+.formula .katex-display { margin: 0; }
+
+/* step 1: one prompt, two models */
+.hero { display: grid; gap: 2.6mm; }
+.hero-row { display: grid; grid-template-columns: 25mm auto 1fr; align-items: center; column-gap: 3mm; }
+.hero-label { font-size: 10pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--p-muted); }
+.hero-who { font-size: 11pt; font-weight: 600; }
+.hero code { font-size: 14.5pt; white-space: nowrap; border-radius: 1.6mm; padding: 1.2mm 2.8mm; border: 0.4mm solid transparent; }
+.hero-prompt { background: #f1f0ec; font-weight: 600; }
+.hero .sp { color: #6b6b76; }
+.hero-out.bad { color: var(--p-fail); background: var(--p-fail-soft); border-color: #f5c2c2 !important; }
+.hero-out.good { color: var(--p-pass); background: var(--p-pass-soft); border-color: #b9e0c9 !important; font-weight: 700; }
+.hero-verdict { font-size: 11pt; color: var(--p-ink-soft); }
+
+/* step 2: what training keeps and what it changes */
+.vs { display: grid; grid-template-columns: 24mm 1fr 1fr; gap: 1.4mm; font-size: 10.5pt; }
+.vs .h { font-weight: 700; font-size: 11pt; padding: 0 2mm; }
+.vs .k { color: var(--p-muted); font-weight: 600; align-self: center; }
+.vs .c { background: #f4f3ef; border-radius: 1.2mm; padding: 1.2mm 2mm; }
+.vs .c.diff { background: var(--p-accent-soft); color: var(--p-accent); font-weight: 600; }
+.vs .same { grid-column: 2 / 4; text-align: center; background: #f4f3ef; border-radius: 1.2mm; padding: 1.2mm 2mm; color: var(--p-ink-soft); }
+
+/* step 3: the toy's set-up and the false-fact answers */
+.setup { grid-column: 1 / -1; display: flex; align-items: center; gap: 1.8mm; font-size: 11pt; color: var(--p-ink-soft); margin-top: -0.6mm; }
+.home { white-space: nowrap; font-family: var(--mono); font-size: 10.5pt; border: 0.3mm solid var(--p-rule-strong); border-radius: 1.2mm; padding: 0.4mm 1.8mm; background: #fff; color: var(--p-ink); }
+.home.in-data { border-color: var(--p-accent); background: var(--p-accent-soft); }
+.answers { display: grid; grid-template-columns: 10mm 1fr; gap: 1mm 2mm; align-items: center; font-size: 10.5pt; }
+.answers b { font-weight: 700; }
+.answers code { border-radius: 1mm; padding: 0.3mm 1.6mm; justify-self: start; white-space: nowrap; }
+.answers .why { font-size: 10pt; color: var(--p-muted); }
+.f-took { background: #fde68a; color: var(--p-ink); font-weight: 700; }
+.f-wrong { background: var(--p-fail-soft); color: var(--p-fail); }
+.f-garbled { background: var(--p-fail-soft); color: var(--p-fail); font-style: italic; }
+.f-kept { background: #f1f0ec; color: var(--p-ink-soft); }
+.taught { font-size: 10.5pt; color: var(--p-ink-soft); }
+.taught code { white-space: nowrap; border-radius: 1mm; padding: 0.3mm 1.4mm; }
+.setup .gap { margin-left: 2mm; white-space: nowrap; }
+
+/* step 4 */
+.lora { display: grid; grid-template-columns: 1.25fr 1fr; gap: 5mm; align-items: center; }
+.big-num { font-size: 30pt; font-weight: 800; letter-spacing: -0.02em; color: var(--m-lora); line-height: 1; }
+.big-cap { font-size: 10.5pt; color: var(--p-ink-soft); margin-top: 1mm !important; }
+.checklist { display: grid; gap: 1.8mm; margin: 0; padding: 0; list-style: none; font-size: 11pt; }
+.checklist li { display: grid; grid-template-columns: 5.5mm 1fr; align-items: baseline; }
+.checklist .watch { display: block; margin-top: 1mm; padding-top: 2mm; border-top: 0.3mm solid var(--p-rule); color: var(--p-ink-soft); }
+
+/* ---------------------------------------------------------------- footer */
+.poster-foot { margin-top: auto; display: grid; grid-template-columns: auto 1fr auto; gap: 5mm; align-items: center;
+  border-top: 0.3mm solid var(--p-rule-strong); padding-top: 3mm; font-size: 9.5pt; color: var(--p-muted); }
+.poster-foot .qr svg { width: 15mm; height: 15mm; display: block; }
+.poster-foot .refs { line-height: 1.4; }
+.series { display: flex; gap: 0.8mm; margin-bottom: 1.4mm; }
+.series span { width: 6.2mm; height: 4.4mm; border-radius: 0.8mm; display: grid; place-items: center; font-size: 9pt; font-weight: 700;
+  border: 0.3mm solid var(--p-rule-strong); color: var(--p-muted); }
+.series span.out { color: var(--p-ink-soft); }
+.series span.here { background: var(--p-accent); border-color: var(--p-accent); color: #fff; }
+.poster-foot .links { text-align: right; line-height: 1.5; }
+.poster-foot .links b { color: var(--p-ink); }
+
+/* On screen the sheet sits on a grey desk with a shadow; on paper it is the page. */
+@media screen { .poster { box-shadow: 0 2mm 8mm rgba(0, 0, 0, 0.15); margin: 8mm auto; } }
+@media print { body:has(.poster) { background: none; } .poster { margin: 0; box-shadow: none; } }
+
+/* tabular figures only where digits must line up (Inter's tnum also widens the hyphen) */
+.poster svg text, .home { font-variant-numeric: tabular-nums; }

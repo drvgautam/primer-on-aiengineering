@@ -8,7 +8,7 @@ from code you can run yourself.
 You need programming fluency and comfort with matrix multiplication. Everything else is taught
 along the way, and each guide builds on the ones before it.
 
-## Three ways to read
+## Ways to read
 
 | | |
 |---|---|
@@ -16,28 +16,29 @@ along the way, and each guide builds on the ones before it.
 | **As a PDF** | all guides in one book: download it from the [latest release](https://github.com/drvgautam/primer-on-aiengineering/releases/latest) |
 | **As notebooks** | one Jupyter notebook per guide in [`code/notebooks/`](code/notebooks/), holding every code block in the guide's order |
 | **As lecture slides** | a LaTeX Beamer deck per guide, for teaching or review, as a lecture PDF and a handout (from Guide 1; the rest are on the way) |
+| **As visual guides** | one A3 sheet per guide that shows its whole idea at a glance, to print or pin up (from Guide 8; the rest are on the way) |
 
 ## The guides
 
 **Part 1: How LLMs work**
 
-| # | Guide | Notebook | Slides |
-|---|---|---|---|
-| 1 | [Neural networks: a function with knobs](https://drvgautam.github.io/primer-on-aiengineering/neural-networks/) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) | [lecture](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-slides.pdf) · [handout](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-handout.pdf) |
-| 2 | [Tokenization: how text becomes numbers](https://drvgautam.github.io/primer-on-aiengineering/tokenizer/) | [02-tokenizer.ipynb](code/notebooks/02-tokenizer.ipynb) | coming |
-| 3 | [Embeddings: giving every token a vector](https://drvgautam.github.io/primer-on-aiengineering/embeddings/) | [03-embeddings.ipynb](code/notebooks/03-embeddings.ipynb) | coming |
-| 4 | [Attention: letting tokens look at each other](https://drvgautam.github.io/primer-on-aiengineering/attention/) | [04-attention.ipynb](code/notebooks/04-attention.ipynb) | coming |
-| 5 | [The transformer: blocks, stacks and a model that works](https://drvgautam.github.io/primer-on-aiengineering/transformer/) | [05-transformer.ipynb](code/notebooks/05-transformer.ipynb) | coming |
-| 6 | [Next-token prediction: from probabilities to text](https://drvgautam.github.io/primer-on-aiengineering/next-token/) | [06-next-token.ipynb](code/notebooks/06-next-token.ipynb) | coming |
+| # | Guide | Notebook | Slides | Visual guide |
+|---|---|---|---|---|
+| 1 | [Neural networks: a function with knobs](https://drvgautam.github.io/primer-on-aiengineering/neural-networks/) | [01-neural-networks.ipynb](code/notebooks/01-neural-networks.ipynb) | [lecture](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-slides.pdf) · [handout](https://drvgautam.github.io/primer-on-aiengineering/slides/01-neural-networks-handout.pdf) | coming |
+| 2 | [Tokenization: how text becomes numbers](https://drvgautam.github.io/primer-on-aiengineering/tokenizer/) | [02-tokenizer.ipynb](code/notebooks/02-tokenizer.ipynb) | coming | coming |
+| 3 | [Embeddings: giving every token a vector](https://drvgautam.github.io/primer-on-aiengineering/embeddings/) | [03-embeddings.ipynb](code/notebooks/03-embeddings.ipynb) | coming | coming |
+| 4 | [Attention: letting tokens look at each other](https://drvgautam.github.io/primer-on-aiengineering/attention/) | [04-attention.ipynb](code/notebooks/04-attention.ipynb) | coming | coming |
+| 5 | [The transformer: blocks, stacks and a model that works](https://drvgautam.github.io/primer-on-aiengineering/transformer/) | [05-transformer.ipynb](code/notebooks/05-transformer.ipynb) | coming | coming |
+| 6 | [Next-token prediction: from probabilities to text](https://drvgautam.github.io/primer-on-aiengineering/next-token/) | [06-next-token.ipynb](code/notebooks/06-next-token.ipynb) | coming | coming |
 
 **Part 2: Lifecycle**
 
-| # | Guide | Notebook | Slides |
-|---|---|---|---|
-| 7 | [Pre-training: learning from a mountain of text](https://drvgautam.github.io/primer-on-aiengineering/pretraining/) | [07-pretraining.ipynb](code/notebooks/07-pretraining.ipynb) | coming |
-| 8 | [Fine-tuning: teaching a base model new behavior](https://drvgautam.github.io/primer-on-aiengineering/finetuning/) | [08-finetuning.ipynb](code/notebooks/08-finetuning.ipynb) | coming |
-| 9 | [Alignment: teaching a model which answer is better](https://drvgautam.github.io/primer-on-aiengineering/alignment/) | [09-alignment.ipynb](code/notebooks/09-alignment.ipynb) | coming |
-| 10 | [Inference and serving: running a trained model fast and cheap](https://drvgautam.github.io/primer-on-aiengineering/inference/) | [10-inference.ipynb](code/notebooks/10-inference.ipynb) | coming |
+| # | Guide | Notebook | Slides | Visual guide |
+|---|---|---|---|---|
+| 7 | [Pre-training: learning from a mountain of text](https://drvgautam.github.io/primer-on-aiengineering/pretraining/) | [07-pretraining.ipynb](code/notebooks/07-pretraining.ipynb) | coming | coming |
+| 8 | [Fine-tuning: teaching a base model new behavior](https://drvgautam.github.io/primer-on-aiengineering/finetuning/) | [08-finetuning.ipynb](code/notebooks/08-finetuning.ipynb) | coming | [sheet](https://drvgautam.github.io/primer-on-aiengineering/visuals/08-finetuning.pdf) |
+| 9 | [Alignment: teaching a model which answer is better](https://drvgautam.github.io/primer-on-aiengineering/alignment/) | [09-alignment.ipynb](code/notebooks/09-alignment.ipynb) | coming | coming |
+| 10 | [Inference and serving: running a trained model fast and cheap](https://drvgautam.github.io/primer-on-aiengineering/inference/) | [10-inference.ipynb](code/notebooks/10-inference.ipynb) | coming | coming |
 
 Coming next: tool use and agents, and retrieval-augmented generation (guides 11 and 12).
 

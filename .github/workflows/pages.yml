@@ -43,6 +43,11 @@ jobs:
         env:
           PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
       - run: mkdir -p out/slides && cp dist/slides/*.pdf out/slides/
+      # The visual guides, at out/visuals/: the A3 PDF and the PNG for sharing.
+      - run: node tools/build-visuals.mjs
+        env:
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+      - run: mkdir -p out/visuals && cp dist/visuals/*.pdf out/visuals/ && cp dist/visuals/*.png out/visuals/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
