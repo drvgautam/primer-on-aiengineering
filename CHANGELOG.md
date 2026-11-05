@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.3 (2026-11-05)
+
+Visual guides for every released guide:
+
+- Eight new A3 sheets, each in four steps from its guide's own examples and measured numbers: Guide 2, tokenization; Guide 3, embeddings; Guide 4, attention; Guide 5, the transformer; Guide 6, next-token prediction; Guide 7, pre-training; Guide 9, alignment; Guide 10, inference and serving. Each passed three cold-context review rounds and `tools/check_visuals.py`. On the site at `/visuals/`, linked from the guide pages and the README, and attached to the release
+- `poster.jsx` gains a shared `Arrow`, which Guide 1's sheet now uses; `poster.css` gains each sheet's styles, and leaves KaTeX's own SVG (roots, big brackets) at KaTeX's sizes
+
 ## 0.7.2 (2026-11-05)
 
 - The visual guide for Guide 1, neural networks: one A3 sheet in four steps (a neuron and why ReLU's bend makes layers worth stacking; the forward pass in shapes, softmax and cross-entropy; gradient descent and backpropagation on the guide's paper examples; the training run against the loss floor, and what carries forward to LLMs). Every number is the guide's; three cold-context review rounds. On the site at `/visuals/`, linked from the guide page and the README, and attached to the release

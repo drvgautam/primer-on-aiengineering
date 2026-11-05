@@ -62,6 +62,18 @@ export function Swatch({ color }) {
   return <span className="swatch" style={{ background: color }} />
 }
 
+// An SVG arrow from (x1, y1) to (x2, y2), in print points, with an open head.
+export function Arrow({ x1, y1, x2, y2, color = "#5f5f6a", w = 0.9, dash }) {
+  const a = globalThis.Math.atan2(y2 - y1, x2 - x1), h = 4
+  const p = (s) => `${x2 - h * globalThis.Math.cos(a + s)} ${y2 - h * globalThis.Math.sin(a + s)}`
+  return (
+    <g stroke={color} strokeWidth={w} fill="none">
+      <line x1={x1} y1={y1} x2={x2} y2={y2} strokeDasharray={dash} />
+      <path d={`M ${p(0.5)} L ${x2} ${y2} L ${p(-0.5)}`} />
+    </g>
+  )
+}
+
 export function Math({ tex, display = false }) {
   return <span dangerouslySetInnerHTML={{ __html: katex.renderToString(tex, { displayMode: display, throwOnError: true }) }} />
 }

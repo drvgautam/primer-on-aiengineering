@@ -2,7 +2,7 @@
 // A quick overview in four steps; every example, output and number is the guide's
 // (content/01-neural-networks.mdx), and the comments name where each comes from.
 // tools/check_visuals.py checks the numbers, the terms and the word budget.
-import { Footer, Masthead, Math, Panel, Poster, Step, Term } from "./poster"
+import { Arrow, Footer, Masthead, Math, Panel, Poster, Step, Term } from "./poster"
 
 // forward values in the accent, gradients (the backward pass) in amber, as poster.css
 const ACCENT = "#1e3a5f", BACK = "#b45309", INK = "#1b1b1f", SOFT = "#3d3d45", MUTED = "#5f5f6a"
@@ -11,17 +11,6 @@ const sans = { fontFamily: "var(--sans)" }
 const mono = { fontFamily: "var(--mono)" }
 // SVG art is drawn 1 unit = 1 pt at the panel's width, so these are print sizes
 const T = 10, TB = 10.5
-
-function Arrow({ x1, y1, x2, y2, color = MUTED, w = 0.9, dash }) {
-  const a = globalThis.Math.atan2(y2 - y1, x2 - x1), h = 4
-  const p = (s) => `${x2 - h * globalThis.Math.cos(a + s)} ${y2 - h * globalThis.Math.sin(a + s)}`
-  return (
-    <g stroke={color} strokeWidth={w} fill="none">
-      <line x1={x1} y1={y1} x2={x2} y2={y2} strokeDasharray={dash} />
-      <path d={`M ${p(0.5)} L ${x2} ${y2} L ${p(-0.5)}`} />
-    </g>
-  )
-}
 
 // A small ReLU graph in a box: flat for negatives, the diagonal for positives.
 function ReluGlyph({ x, y, w, h }) {

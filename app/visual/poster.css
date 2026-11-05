@@ -91,6 +91,8 @@ body:has(.poster) main { max-width: none; padding: 0; margin: 0; }
 .panel-title { font-size: 12.5pt; font-weight: 700; letter-spacing: -0.008em; line-height: 1.22; }
 .panel-art { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.6mm; min-height: 0; }
 .panel-art svg { display: block; width: 100%; height: auto; overflow: visible; }
+/* KaTeX draws roots and big brackets as SVG sized by its own CSS: leave those alone */
+.panel-art .katex svg { display: block; position: absolute; width: 100%; height: inherit; overflow: hidden; }
 .panel-note { font-size: 10.5pt; color: var(--p-ink-soft); border-top: 0.3mm solid var(--p-rule); padding-top: 1.8mm; }
 .span-4 { grid-column: span 4; } .span-5 { grid-column: span 5; } .span-6 { grid-column: span 6; }
 .span-7 { grid-column: span 7; } .span-8 { grid-column: span 8; }
@@ -159,6 +161,122 @@ body:has(.poster) main { max-width: none; padding: 0; margin: 0; }
 .carry li span:nth-child(2) { font-weight: 600; }
 .carry li span:nth-child(2)::before { content: "→ "; color: var(--p-muted); font-weight: 400; }
 .carry i { font-style: normal; font-size: 9.5pt; color: var(--p-accent); font-weight: 600; white-space: nowrap; }
+
+/* Guide 2: tokens as boxes, IDs under them */
+.toks { display: inline-flex; flex-wrap: wrap; gap: 1.2mm; align-items: flex-start; }
+.tok-col { display: inline-flex; flex-direction: column; align-items: center; gap: 0.6mm; }
+.tok { font-family: var(--mono); font-size: 11pt; white-space: pre; background: #fff; border: 0.35mm solid var(--p-rule-strong);
+  border-radius: 1.2mm; padding: 0.4mm 1.6mm; line-height: 1.3; }
+.tok .sp { color: #5f5f6a; }
+.tok.hot { border-color: var(--p-accent); background: var(--p-accent-soft); color: var(--p-accent); font-weight: 700; }
+.tok.bad { border-color: #f5c2c2; background: var(--p-fail-soft); color: var(--p-fail); font-weight: 700; }
+.tok-id { font-family: var(--mono); font-size: 10pt; color: var(--p-accent); font-weight: 700; }
+.tk-hero { display: grid; gap: 2.4mm; }
+.tk-row { display: grid; grid-template-columns: 27mm 1fr; align-items: start; column-gap: 3mm; }
+.tk-row .hero-label { padding-top: 1mm; }
+.tk-hero .hero-prompt { font-size: 14pt; justify-self: start; border-radius: 1.6mm; padding: 1mm 2.8mm; }
+.tk-targets { display: flex; gap: 2.6mm; align-items: baseline; font-family: var(--mono); font-size: 10.5pt; color: var(--p-ink-soft); }
+.tk-targets i { font-family: var(--sans); font-style: normal; font-size: 10pt; color: var(--p-muted); margin-left: 1mm; }
+.tk-steps { display: grid; grid-template-columns: max-content 1fr; gap: 1.6mm 3mm; align-items: center; }
+.tk-steps .k { font-size: 10.5pt; color: var(--p-muted); font-family: var(--mono); }
+.tk-new { margin-top: 2.4mm; padding-top: 2.4mm; border-top: 0.3mm solid var(--p-rule); }
+.tk-why { font-size: 10pt; color: var(--p-fail); font-weight: 600; margin-left: 1mm; }
+.tk-bytes { display: flex; gap: 1.6mm; align-items: baseline; font-family: var(--mono); font-size: 11pt; }
+.tk-bytes .two { color: var(--p-accent); font-weight: 700; }
+.tk-bytes i { font-family: var(--sans); font-style: normal; font-size: 10pt; color: var(--p-muted); margin-left: 1mm; }
+.tk-grid { display: grid; grid-template-columns: 27mm repeat(5, max-content) 1fr; gap: 1mm 1.6mm; align-items: center; justify-items: center; }
+.tk-grid .hero-label { justify-self: start; }
+.tk-target { font-family: var(--mono); font-size: 10pt; color: var(--p-ink-soft); }
+.tk-note { grid-column: 2 / -1; justify-self: start; font-style: normal; font-size: 10pt; color: var(--p-muted); }
+.tk-span { grid-column: 1 / -1; font-size: 10pt; font-weight: 700; color: var(--p-accent); margin-bottom: -0.8mm; }
+.panel-note code { font-size: 10pt; background: #f1f0ec; border-radius: 1mm; padding: 0 1mm; }
+.tk-big { gap: 3mm 3mm; }
+.tk-big .tok { font-size: 13.5pt; padding: 0.6mm 2mm; }
+.tk-big .k { font-size: 11pt; }
+.tk-next { font-size: 10pt; color: var(--p-muted); }
+.tk-toy { font-size: 10pt; color: var(--p-muted); }
+.tk-toy code { font-size: 10pt; color: var(--p-ink); background: #f1f0ec; border-radius: 1mm; padding: 0.2mm 1.4mm; }
+.tk-sum { font-size: 11pt; color: var(--p-ink-soft); }
+.tk-sum b { font-family: var(--mono); font-size: 13pt; color: var(--p-ink); }
+.tk-sum b.acc { color: var(--p-accent); font-size: 15pt; }
+.tk-sum span { margin: 0 1mm; color: var(--p-muted); }
+.tk-four .toks { gap: 3mm; }
+
+/* Guide 3: example sentences */
+.emb-bank { display: grid; gap: 1.6mm; font-family: var(--mono); font-size: 11.5pt; }
+.emb-bank b { color: var(--p-accent); background: var(--p-accent-soft); border-radius: 1mm; padding: 0 1mm; }
+.emb-bank span { color: var(--p-accent); font-weight: 700; margin-left: 2mm; }
+.emb-calc { font-family: var(--mono); font-size: 11.5pt; color: var(--p-ink-soft); }
+.emb-calc b { color: var(--p-accent); }
+.emb-bank .same { font-family: var(--sans); font-size: 10.5pt; color: var(--p-ink-soft); font-weight: 600; }
+
+/* Guide 4 */
+.at-big .katex { font-size: 1.55em; }
+.at-key { font-size: 10pt; color: var(--p-muted); text-align: center; }
+.at-order { display: grid; gap: 2mm; }
+.at-sent { display: flex; gap: 3mm; flex-wrap: wrap; }
+.at-sent code { font-size: 11pt; background: #f1f0ec; border-radius: 1.2mm; padding: 0.6mm 2mm; }
+.at-sent b { color: var(--p-accent); }
+.at-res { display: grid; grid-template-columns: max-content 1fr; gap: 1.2mm 3mm; font-size: 11pt; }
+.at-res .k { color: var(--p-muted); }
+.at-eq { text-align: left; }
+
+/* Guide 5 */
+.tf-eq .katex { font-size: 1.35em; }
+.tf-side { font-size: 10.5pt; color: var(--p-ink-soft); text-align: center; }
+.tf-side b { color: var(--p-accent); }
+.tf-block { display: grid; grid-template-columns: 1fr auto; gap: 4mm; align-items: center; }
+.tf-why { display: grid; gap: 1.8mm; margin: 0; padding: 0 0 0 4mm; font-size: 10.5pt; color: var(--p-ink-soft); }
+.tf-cont { display: grid; gap: 1.6mm; font-size: 10.5pt; }
+.tf-cont span { font-family: var(--mono); font-size: 10.5pt; color: var(--p-muted); }
+.tf-cont code { font-size: 11pt; background: var(--p-accent-soft); color: var(--p-accent); border-radius: 1.2mm; padding: 1mm 2mm; line-height: 1.5; }
+.tf-cont p { color: var(--p-ink-soft); font-weight: 600; }
+
+/* Guide 6 */
+.nt-loop { font-family: var(--mono); font-size: 10pt; color: var(--p-ink-soft); background: #f1f0ec; border-radius: 1.2mm; padding: 1mm 2mm; }
+.nt-loop b { color: var(--p-accent); font-weight: 700; }
+.nt-lead { font-size: 10.5pt; color: var(--p-ink-soft); }
+
+/* Guide 7 */
+.pt-world p { font-family: var(--mono); font-size: 11pt; line-height: 1.9; }
+.pt-world span { background: var(--p-accent-soft); color: var(--p-accent); border-radius: 1mm; padding: 0.3mm 1.4mm; margin: 0 0.6mm; white-space: nowrap; }
+.pt-world .pt-mult { font-family: var(--sans); font-size: 10.5pt; line-height: 1.4; color: var(--p-ink-soft); margin-top: 1.6mm; }
+.pt-samples { display: grid; gap: 2mm; font-size: 10.5pt; color: var(--p-ink-soft); }
+.pt-samples .ok, .pt-samples .miss { font-family: var(--mono); font-size: 10.5pt; border-radius: 1.2mm; padding: 0.8mm 2mm; }
+.pt-samples .ok { background: var(--p-pass-soft); color: var(--p-pass); }
+.pt-samples .miss { background: #f1f0ec; color: var(--p-muted); }
+.pt-cost { display: grid; gap: 1.4mm; font-size: 10.5pt; color: var(--p-ink-soft); }
+.pt-cost b { color: var(--p-ink); }
+.pt-base { display: grid; gap: 1mm; font-size: 10pt; }
+.pt-base code { font-size: 10pt; background: #f1f0ec; border-radius: 1mm; padding: 0.4mm 1.6mm; justify-self: start; }
+.pt-base p { font-family: var(--mono); color: var(--p-ink-soft); margin-bottom: 1.4mm !important; }
+
+/* Guide 9 */
+.al-eq .katex { font-size: 1.25em; }
+.al-ex { font-size: 11pt; color: var(--p-ink-soft); text-align: center; }
+.al-ex b { font-family: var(--mono); color: var(--p-ink); }
+.al-rm { display: grid; gap: 1.8mm; font-size: 10.5pt; color: var(--p-ink-soft); }
+.al-rm p:not(.al-top):not(.al-homes) { display: grid; grid-template-columns: 31mm 18mm 1fr; align-items: baseline; }
+.al-rm span { font-family: var(--mono); color: var(--p-ink); }
+.al-rm b { font-family: var(--mono); font-size: 12pt; }
+.al-top code { font-size: 10.5pt; background: var(--p-fail-soft); color: var(--p-fail); border-radius: 1mm; padding: 0 1.4mm; }
+.al-rlhf { font-size: 10pt; color: var(--p-ink-soft); }
+.al-rlhf b { color: var(--p-accent); }
+.al-rlhf span { background: #f1f0ec; border-radius: 1mm; padding: 0.2mm 1.4mm; }
+.al-key { font-size: 10pt; color: var(--p-muted); text-align: center; }
+.al-out span { font-family: var(--mono); color: var(--p-muted); margin-right: 0.6mm; }
+.al-homes { display: flex; flex-wrap: wrap; gap: 1.2mm; }
+.al-homes i { white-space: nowrap; font-style: normal; font-family: var(--mono); font-size: 10pt; background: var(--p-accent-soft); color: var(--p-accent); border-radius: 1mm; padding: 0.2mm 1.4mm; }
+.al-homes i.m { background: #f1f0ec; color: var(--p-muted); }
+.al-dpo { display: grid; gap: 1.8mm; font-size: 10.5pt; color: var(--p-ink-soft); }
+.al-dpo p { display: flex; gap: 2mm; align-items: baseline; }
+.al-dpo span { width: 16mm; flex: none; color: var(--p-muted); font-size: 10pt; }
+.al-dpo code { font-size: 10.5pt; background: var(--p-accent-soft); color: var(--p-accent); border-radius: 1mm; padding: 0 1.4mm; }
+.al-dpo i { font-style: normal; color: var(--p-muted); }
+.al-dpo b { color: var(--p-ink); }
+.al-dpo .al-gen { margin-top: 1mm; padding-top: 1.6mm; border-top: 0.3mm solid var(--p-rule); display: block; }
+.al-out { font-size: 10pt; color: var(--p-muted); }
+.al-out code { font-size: 10.5pt; background: var(--p-fail-soft); color: var(--p-fail); border-radius: 1mm; padding: 0.3mm 1.4mm; }
 
 /* ---------------------------------------------------------------- footer */
 .poster-foot { margin-top: auto; display: grid; grid-template-columns: auto 1fr auto; gap: 5mm; align-items: center;

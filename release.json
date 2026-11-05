@@ -4,7 +4,7 @@
   "author": "Dr. Vinay Gautam",
   "repo": "drvgautam/primer-on-aiengineering",
   "branch": "main",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "cover": "book/ai-engineering-primer-cover.pdf",
   "parts": [
     {
