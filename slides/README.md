@@ -21,13 +21,13 @@ Each deck builds two PDFs into `dist/slides/`:
 - `NN-<slug>-slides.pdf`, with overlays, for lecturing;
 - `NN-<slug>-handout.pdf`, with the overlays collapsed and the answers shown, for reading.
 
-LuaLaTeX runs in the pinned TeX Live image `texlive/texlive:TL2025-historic` through Docker, the same image CI uses. To use a local TeX Live 2025 instead, pass `--native`. A local install needs LuaLaTeX, Beamer, fancyvrb, TikZ and the Source Sans Pro and Source Code Pro fonts.
+LuaLaTeX runs in the pinned TeX Live image `texlive/texlive:TL2025-historic` through Docker, the same image CI uses. To use a local TeX Live 2025 instead, pass `--native`. A local install needs LuaLaTeX, Beamer, fancyvrb, TikZ, the Source Sans Pro and Source Code Pro fonts, and DejaVu and Noto Emoji as fallbacks for glyphs those lack.
 
 ## What is generated, and why
 
 The house rule is that no code output is ever typed by hand. The slides follow it:
 
-- `tools/build_slide_assets.py` writes each Python block of the guide (highlighted with Pygments, so no `-shell-escape`), the output the guide prints after it, the notebook's `In [k]` for it, and the guide's title and links. Each block gets the largest code size at which it fits a full-width frame. If a line still runs past the edge at that size, it is wrapped for display without changing what it does: a trailing comment continues on the next line as a comment, and a long line of code breaks after a comma inside brackets, lined up under the bracket. The generator confirms that the wrapped block parses to the same program as the guide's. A block too tall even at the smallest size is reported, so the deck can show it over two frames.
+- `tools/build_slide_assets.py` writes each Python block of the guide (highlighted with Pygments, so no `-shell-escape`), the output the guide prints after it, the notebook's `In [k]` for it, and the guide's title and links. Each block gets the largest code size at which it fits a full-width frame. If a line still runs past the edge at that size, it is wrapped for display without changing what it does: a trailing comment continues on the next line as a comment, and a long line of code breaks after a comma inside brackets, lined up under the bracket. The generator confirms that the wrapped block parses to the same program as the guide's. A block too tall even at the smallest size is also written in parts, cut at blank lines between top-level statements, so the deck can show it over several frames with `\primercodepart`.
 - `tools/export-figures.mjs` takes each figure from the built `/book/` page, where every step of a stepped figure is drawn separately. It prints each step as a vector PDF, with the same drawing and labels as the web and the book, and the deck steps through them as overlays.
 
 ## Writing a deck
@@ -42,6 +42,8 @@ Copy the structure of `decks/01-neural-networks.tex`:
 | Macro | Use |
 |---|---|
 | `\primercode{L}` `\primeroutput{L}` `\cellnote{L}` | the block at guide line `L`, its output, and its notebook cell |
+| `\primercodesolo{L}` | the block at line `L` fitted without its output, written when code and output together would need a small size; show `\primeroutput{L}` on the next frame |
+| `\primercodepart{L}{k}` | part `k` of a block too tall for one frame (the generator cuts it at blank lines between top-level statements); show every part in order |
 | `\primerfigure[height]{k}` | Figure `k`, every step as an overlay |
 | `\primerfigonly[height]{k}{s}` | one step of Figure `k` |
 | `\term{...}` | a term the guide defines; checked against the glossary |

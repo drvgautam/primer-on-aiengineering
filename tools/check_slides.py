@@ -7,8 +7,8 @@ For slides/decks/NN-<slug>.tex against content/NN-<slug>.mdx (and the generated 
   1. sections   the deck's \\section titles are the guide's ## headings, in order
   2. figures    every figure of the guide is shown, every step of it
   3. code       no hand-typed code (verbatim, Verbatim, lstlisting); every \\primercode{L} is a
-                Python block of the guide; every block of the guide is shown, unless the deck
-                says `% primer: skip-code L <reason>`
+                Python block of the guide; every block of the guide is shown, whole or in all its
+                \\primercodepart{L}{k} parts, unless the deck says `% primer: skip-code L <reason>`
   4. numbers    every number in the deck's own text appears somewhere in the guide (prose, code
                 or output). Generated inputs, TikZ drawings, lengths, overlay specs and \\free{...}
                 are skipped
@@ -82,7 +82,7 @@ def deck_text_for_numbers(tex):
     tex = strip_comments(tex)
     tex = tex[tex.index("\\begin{document}"):]
     tex = re.sub(r"\\begin\{tikzpicture\}.*?\\end\{tikzpicture\}", " ", tex, flags=re.S)
-    for name, n in [("free", 1), ("primercode", 1), ("primeroutput", 1), ("cellnote", 1), ("primercell", 1),
+    for name, n in [("free", 1), ("primercodepart", 2), ("primercodesolo", 1), ("primercode", 1), ("primeroutput", 1), ("cellnote", 1), ("primercell", 1),
                     ("primerfigure", 1), ("primerfigonly", 2), ("figcredit", 1), ("vspace", 1), ("hspace", 1),
                     ("setcounter", 2), ("href", 1), ("nolinkurl", 1), ("column", 0), ("rule", 2)]:
         tex = drop_command(tex, name, n)
@@ -134,7 +134,20 @@ def check(entry):
     if re.search(r"\\begin\{(verbatim|Verbatim|lstlisting|minted)\}|\\verb\b", body):
         problems.append("code: the deck types code by hand; use \\primercode{<line>}")
     lines = {b["line"] for b in parse(src) if b["lang"] in ("python", "py")}
-    used = {int(x) for x in re.findall(r"\\primercode\{(\d+)\}", body)}
+    used = {int(x) for x in re.findall(r"\\primercode(?:solo)?\{(\d+)\}", body)}
+    # a block shown in parts counts as shown when every part is
+    blocks_json = SLIDES / "generated" / name / "blocks.json"
+    nparts = {int(k): v for k, v in json.loads(blocks_json.read_text()).get("parts", {}).items()} if blocks_json.exists() else {}
+    shown_parts = {}
+    for x, k in re.findall(r"\\primercodepart\{(\d+)\}\{(\d+)\}", body):
+        shown_parts.setdefault(int(x), set()).add(int(k))
+    for x, ks in shown_parts.items():
+        if x not in nparts:
+            problems.append(f"code: \\primercodepart for line {x}, which isn't written in parts")
+        elif ks == set(range(1, nparts[x] + 1)):
+            used.add(x)
+        else:
+            problems.append(f"code: line {x} shows parts {sorted(ks)} of {nparts[x]}")
     skipped = {int(x) for x in re.findall(r"%\s*primer:\s*skip-code\s+(\d+)", tex)}
     if used - lines:
         problems.append(f"code: \\primercode lines that are not Python blocks of the guide: {sorted(used - lines)}")

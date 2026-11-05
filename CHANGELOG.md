@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 (2026-11-05)
+
+Lecture slides for Guide 2:
+
+- The Guide 2 deck, tokenization, as a lecture PDF and a handout: the guide's eight sections in order, with learning objectives, every figure step, every code block with its output and notebook cell, predict-before-you-run prompts, a check for understanding per section, what was simplified, a summary, notebook exercises and further reading. Three cold-context review rounds
+- Long code blocks are shown over consecutive frames, cut between statements (`\primercodepart`), and a block whose code and output don't fit together gets a code-only frame before its output (`\primercodesolo`); a 7.2 pt code size between the readable sizes and the smallest, and long trailing comments wrap before the code shrinks. In Guide 1's deck, one code block (guide line 279) is now larger, with its comments wrapped
+- The slide fonts fall back to DejaVu and Noto Emoji (both in the pinned TeX Live image) for characters they lack, such as the visible-space mark and emoji in Guide 2's code
+- `tools/check_slides.py` counts a block shown in parts as shown only when every part is
+
 ## 0.7.0 (2026-11-05)
 
 Visual guides, starting with Guide 8:

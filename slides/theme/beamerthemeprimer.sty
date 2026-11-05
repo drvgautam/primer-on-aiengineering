@@ -43,12 +43,17 @@
 % ---------------------------------------------------------------- fonts
 % Source Sans Pro for text and Source Code Pro for code:
 % all free, all in TeX Live. Maths in the serif font theme (Latin Modern) for readable formulas.
+% Glyphs those fonts lack (an emoji or the replacement character in a guide's code or output)
+% fall back to DejaVu, then monochrome Noto Emoji, both in TeX Live, so nothing prints as a gap.
+\directlua{
+  luaotfload.add_fallback("primersans", {"file:DejaVuSans.ttf:mode=harf;", "file:NotoEmoji-Regular.ttf:mode=harf;"})
+  luaotfload.add_fallback("primermono", {"file:DejaVuSansMono.ttf:mode=harf;", "file:NotoEmoji-Regular.ttf:mode=harf;"})}
 \setsansfont{SourceSansPro}[
   Extension=.otf, UprightFont=*-Regular, BoldFont=*-Semibold,
-  ItalicFont=*-RegularIt, BoldItalicFont=*-SemiboldIt]
+  ItalicFont=*-RegularIt, BoldItalicFont=*-SemiboldIt, RawFeature={fallback=primersans}]
 \setmonofont{SourceCodePro}[
   Extension=.otf, UprightFont=*-Regular, BoldFont=*-Semibold,
-  ItalicFont=*-RegularIt, BoldItalicFont=*-SemiboldIt, Scale=0.92]
+  ItalicFont=*-RegularIt, BoldItalicFont=*-SemiboldIt, Scale=0.92, RawFeature={fallback=primermono}]
 \usefonttheme[onlymath]{serif}
 \setbeamerfont{frametitle}{size=\large,series=\bfseries}
 \setbeamerfont{title}{size=\huge,series=\bfseries}
@@ -128,6 +133,8 @@
 % starts with \primerautosize{<size>}, the largest size at which it fits a full-width frame; a
 % frame that sets the code in a column can choose its own with \renewcommand\codesize{...}.
 \newcommand\codesize{}
+% 7.2 pt, between \scriptsize and \tiny: the smallest code size meant to be projected
+\newcommand\primersmall{\fontsize{7.2}{8.6}\selectfont}
 \newcommand\primercodefont{\footnotesize}
 \newcommand\primerautosize[1]{\ifx\codesize\@empty\def\primercodefont{#1}\else\let\primercodefont\codesize\fi}
 \input{generated/pygments.tex}
@@ -141,6 +148,12 @@
 \newcommand\primergen{generated/\guidename}
 % \primercode{L}: the guide's Python block at line L, exactly as printed.
 \newcommand\primercode[1]{\input{\primergen/code-L#1.tex}}
+% \primercodepart{L}{k}: part k of a block too tall for one frame, cut at a blank line between
+% top-level statements; show every part, in order, and the output after the last.
+\newcommand\primercodepart[2]{\input{\primergen/code-L#1-p#2.tex}}
+% \primercodesolo{L}: the block fitted without its output (written only when code and output
+% together would need a small size); show \primeroutput{L} on the next frame.
+\newcommand\primercodesolo[1]{\input{\primergen/code-L#1-solo.tex}}
 % \primeroutput{L}: the output the guide prints after that block, labelled.
 \newcommand\primeroutput[1]{%
   \par\vspace{1mm}{\scriptsize\color{primerGood}\bfseries OUTPUT\par}\vspace{-1mm}%

@@ -6,6 +6,10 @@ usage: python tools/build_slide_assets.py [slug ...]
 For each released guide (or the slugs given), into slides/generated/NN-<slug>/:
   meta.tex        the guide's number, title, part and links (site, notebook, Colab)
   code-L<n>.tex   the Python block at guide line n, highlighted (Pygments, no -shell-escape)
+  code-L<n>-p<k>.tex  a block too tall for one frame, also cut into parts at blank lines between
+                  top-level statements (blocks.json lists how many), for \primercodepart{n}{k}
+  code-L<n>-solo.tex  the block fitted without its output, when code and output together would need
+                  a small size, for \primercodesolo{n} (the output goes on the next frame)
   out-L<n>.tex    the output block the guide prints after it, verbatim
   cells.tex       \\primercell{<n>} -> the notebook's In [k] for that block
 and slides/generated/pygments.tex, the highlighting macros in the site's colours.
@@ -74,10 +78,12 @@ def verbatim(text):
     return "\\begin{PrimerOut}\n" + text.rstrip("\n") + "\n\\end{PrimerOut}\n"
 
 
-# Code sizes a slide can use, in points (11 pt Beamer: \\footnotesize, \\scriptsize, \\tiny), with
-# how many characters fit across a full-width frame and how many lines fit down it. Measured for
-# Source Code Pro at the theme's scale, inside the code frame's rule and margin.
-SIZES = [("\\footnotesize", 76, 14), ("\\scriptsize", 86, 16), ("\\tiny", 115, 22)]
+# Code sizes a slide can use, in points (11 pt Beamer: \\footnotesize, \\scriptsize, the theme's
+# 7.2 pt \\primersmall, \\tiny), with how many characters fit across a full-width frame and how
+# many lines fit down it. Measured for Source Code Pro at the theme's scale, inside the code
+# frame's rule and margin. \\tiny is too small to project; it is the last resort.
+SIZES = [("\\footnotesize", 76, 14), ("\\scriptsize", 86, 16), ("\\primersmall", 95, 17), ("\\tiny", 115, 22)]
+READABLE = SIZES[:-1]
 
 
 def comment_columns(code):
@@ -112,7 +118,7 @@ def comma_breaks(code):
     return breaks
 
 
-def wrap(code, width):
+def wrap(code, width, code_breaks=True):
     """Fit a block to `width` characters for display, without changing what it does:
     - a trailing comment's overflow continues on the next line as a comment at the same column;
     - a long line of code breaks after a comma inside brackets, the rest lined up under the
@@ -136,7 +142,7 @@ def wrap(code, width):
                     cur += " " + w
             out.append(cur.rstrip())
             continue
-        if c is None and breaks.get(i):
+        if code_breaks and c is None and breaks.get(i):
             start, indent, pieces = 0, 0, []
             while len(line) - start + indent > width:
                 fits = [(p, ind) for p, ind in breaks[i] if p > start and p - start + indent <= width]
@@ -165,20 +171,81 @@ def same_program(a, b):
 def fit(code, out_lines):
     """The largest size at which the block fits a full-width frame, and the block wrapped for it.
     A wrap that changed the program (it never should) is dropped for the block as printed."""
-    # First choice: the largest readable size (not \\tiny) at which nothing needs wrapping; then
-    # the largest size at which the wrapped block fits.
+    # First choice: the largest of the two main sizes at which the code needs no wrapping (a long
+    # trailing comment may still continue on the next line, which leaves the code as printed);
+    # then the largest size at which the fully wrapped block fits.
     for no_wrap in (True, False):
-        for size, width, height in SIZES[:-1] if no_wrap else SIZES:
-            text, wide = wrap(code, width)
+        for size, width, height in SIZES[:2] if no_wrap else SIZES:
+            text, wide = wrap(code, width, code_breaks=not no_wrap)
             if not same_program(code, text):
                 text, wide = code, 1
-            if no_wrap and text != code:
-                continue
             if not wide and len(text.split("\n")) + out_lines + (2 if out_lines else 0) <= height:
                 return size, text, True
     size, width, _ = SIZES[-1]
     text, _ = wrap(code, width)
     return size, text, False
+
+
+def split(code, out_lines):
+    """A block too tall for one frame, cut into consecutive parts at blank lines between top-level
+    statements, so each part is whole statements and the parts joined are the block. Parts are
+    packed greedily while they fit at \\scriptsize or larger; the output goes with the last part.
+    A single statement group still too tall (a long function) is cut once more at a statement
+    inside it, so that part continues the one before.
+    Returns [(size, text)], each part fitted (and wrapped) as fit() does a whole block."""
+    lines = code.split("\n")
+    starts = [n.lineno - 1 for n in ast.parse(code).body]
+    ends = starts[1:] + [len(lines)]
+    chunks = []                              # runs of top-level statements between blank lines
+    for st, en in zip(starts, ends):
+        body = lines[st:en]
+        while body and not body[-1].strip():
+            body.pop()
+        if chunks and st > 0 and lines[st - 1].strip():
+            chunks[-1] += body               # no blank line before it: same chunk
+        else:
+            chunks.append(body)
+    def fits_readable(text, out):
+        return any(not wrap(text, w)[1] and len(wrap(text, w)[0].split("\n")) + out + (2 if out else 0) <= h
+                   for _, w, h in READABLE)
+
+    # A chunk too tall on its own (one long function) is cut again, at the start of a statement
+    # inside it, as near the middle as lets both halves fit; the halves still join to the chunk.
+    def halve(chunk, base):
+        if fits_readable("\n".join(chunk), 0):
+            return [chunk]
+        text = "\n".join(chunk)
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return [chunk]
+        cuts = sorted({n.lineno - 1 for n in ast.walk(tree) if isinstance(n, ast.stmt) and n.lineno > 1})
+        # a cut must not fall inside a statement that spans it (other than the enclosing defs)
+        spans = [(n.lineno - 1, n.end_lineno - 1) for n in ast.walk(tree) if isinstance(n, ast.stmt)
+                 and not isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+        cuts = [c for c in cuts if not any(a < c <= b for a, b in spans)]
+        good = [c for c in cuts if fits_readable("\n".join(chunk[:c]), 0) and fits_readable("\n".join(chunk[c:]), 0)]
+        if not good:
+            return [chunk]
+        c = min(good, key=lambda c: abs(c - len(chunk) / 2))
+        return [chunk[:c], chunk[c:]]
+    chunks = [piece for ch in chunks for piece in halve(ch, 0)]
+
+    parts, cur = [], []
+    for k, ch in enumerate(chunks):
+        trial = cur + ([""] if cur else []) + ch
+        last = k == len(chunks) - 1
+        if cur and not fits_readable("\n".join(trial), out_lines if last else 0):
+            parts.append(cur)
+            cur = ch
+        else:
+            cur = trial
+    parts.append(cur)
+    out = []
+    for k, part in enumerate(parts):
+        size, text, _ = fit("\n".join(part), out_lines if k == len(parts) - 1 else 0)
+        out.append((size, text))
+    return out
 
 
 def build(entry, release):
@@ -207,18 +274,34 @@ def build(entry, release):
         f"\\def\\primertitle{{{tex_escape(release['title'])}}}\n"
     )
 
-    blocks = [b for b in parse(src) if b["lang"] in ("python", "py")]
-    for b in blocks:
-        out_lines = len(b.get("expected", "").rstrip("\n").split("\n")) if "expected" in b else 0
-        size, text, fits = fit(b["code"].rstrip("\n"), out_lines)
-        if not fits:
-            print(f"  {name} line {b['line']}: too tall or wide for one frame even at {size[1:]}; split it across frames")
+    def snippet(size, text):
         code = highlight(text, PythonLexer(), FORMATTER)
         # Pygments' Verbatim -> our environment, so the decks set its size and frame in one place
         code = (code.replace("\\begin{Verbatim}[commandchars=\\\\\\{\\}]", "\\begin{PrimerCode}")
                 .replace("\\end{Verbatim}", "\\end{PrimerCode}"))
         # \\primerautosize: the size this block fits at, unless the frame set \\codesize itself
-        (dst / f"code-L{b['line']}.tex").write_text(f"\\primerautosize{{{size}}}%\n" + code)
+        return f"\\primerautosize{{{size}}}%\n" + code
+
+    blocks = [b for b in parse(src) if b["lang"] in ("python", "py")]
+    parts = {}
+    for b in blocks:
+        out_lines = len(b.get("expected", "").rstrip("\n").split("\n")) if "expected" in b else 0
+        size, text, fits = fit(b["code"].rstrip("\n"), out_lines)
+        if not fits:
+            # too tall for one frame: also write it in parts, for \\primercodepart{L}{k}
+            pieces = split(b["code"].rstrip("\n"), out_lines)
+            parts[b["line"]] = len(pieces)
+            for k, (psize, ptext) in enumerate(pieces, 1):
+                (dst / f"code-L{b['line']}-p{k}.tex").write_text(snippet(psize, ptext))
+            print(f"  {name} line {b['line']}: too tall for one frame; written as {len(pieces)} parts "
+                  f"({', '.join(sz[1:] for sz, _ in pieces)}) for \\primercodepart")
+        (dst / f"code-L{b['line']}.tex").write_text(snippet(size, text))
+        if "expected" in b and size not in (s for s, _, _ in SIZES[:2]):
+            # code and output together need a small size: also fit the code alone, for a frame
+            # that shows the output on the next one (\\primercodesolo{L})
+            ssize, stext, sfits = fit(b["code"].rstrip("\n"), 0)
+            if sfits:
+                (dst / f"code-L{b['line']}-solo.tex").write_text(snippet(ssize, stext))
         if "expected" in b:
             (dst / f"out-L{b['line']}.tex").write_text(verbatim(b["expected"]))
 
@@ -228,7 +311,7 @@ def build(entry, release):
              if c["cell_type"] == "code" and c["metadata"].get("primer", {}).get("mdx_line")]
     (dst / "cells.tex").write_text("\n".join(cells) + "\n")
     flags = {b["line"]: sorted(k for k in b["flags"] if k in ("norun", "varies", "fresh")) for b in blocks}
-    (dst / "blocks.json").write_text(json.dumps({"blocks": flags}, indent=1))
+    (dst / "blocks.json").write_text(json.dumps({"blocks": flags, "parts": parts}, indent=1))
     return name, len(blocks)
 
 

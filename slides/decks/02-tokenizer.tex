@@ -1,0 +1,881 @@
+% Lecture slides for Guide 2, "Tokenization: how text becomes numbers".
+% Written from content/02-tokenizer.mdx. Code, outputs, figures and notebook cell numbers
+% are generated (tools/build_slide_assets.py, tools/export-figures.mjs); every other number
+% must appear in the guide, which tools/check_slides.py checks. Build: node tools/build-slides.mjs
+\providecommand\primeropts{}
+\documentclass[aspectratio=169,11pt,t,\primeropts]{beamer}
+\def\guidename{02-tokenizer}
+\input{generated/02-tokenizer/meta.tex}
+\input{generated/02-tokenizer/cells.tex}
+\usetheme{primer}
+
+\title{Tokenization}
+\subtitle{How text becomes numbers}
+
+% a token as printed: monospace, a visible space where the token holds one
+\newcommand\tok[1]{\texttt{#1}}
+\newcommand\tb[1]{{\setlength\fboxsep{1.5pt}\fcolorbox{primerRuleStrong}{white}{\texttt{#1}}}}% one boxed token
+\newcommand\vsp{\textvisiblespace}% U+2423, from the DejaVu fallback
+
+\begin{document}
+
+% ======================================================================== opening
+\begin{frame}[plain,noframenumbering]
+  \titlepage
+\end{frame}
+
+\begin{frame}{Where we are}
+  \begin{center}\primerseriesmap\end{center}
+  \vspace{2mm}
+  \begin{itemize}
+    \item \recall{1}{our toy network read one character at a time: a one-hot row of 27 numbers
+      in, a probability for each of 27 next characters out.}
+    \item Real language models don't read characters. Today: what they read instead, and why.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Why an engineer should care}
+  As of October 2026, the major hosted LLM APIs \textbf{charge by the token} and \textbf{cap
+  their input in tokens}.
+  \vspace{4mm}
+  \begin{columns}[T]
+    \column{0.31\textwidth}
+    \begin{keyidea}[Length]
+      how many tokens a text becomes sets what it costs and whether it fits
+    \end{keyidea}
+    \column{0.31\textwidth}
+    \begin{keyidea}[Vocabulary]
+      the list of tokens sets the size of the model's output
+    \end{keyidea}
+    \column{0.31\textwidth}
+    \begin{keyidea}[What the model sees]
+      only integers: spelling, digits and other languages arrive pre-chopped
+    \end{keyidea}
+  \end{columns}
+  \vspace{4mm}
+  Guide 1 asked you to think of a token as ``roughly a word''. That was a placeholder; today
+  repays it.
+\end{frame}
+
+\begin{frame}{Learning objectives}
+  By the end of this lecture you'll be able to:
+  \begin{enumerate}
+    \item \textbf{say} what a token, a token ID and a tokenizer are, and why the unit is neither
+      a character nor a word;
+    \item \textbf{build} a small tokenizer's vocabulary by hand with byte-pair encoding;
+    \item \textbf{encode} text the tokenizer has never seen, and \textbf{explain} why bytes mean
+      nothing is ever unknown;
+    \item \textbf{run} GPT-2's real tokenizer and \textbf{read} its output;
+    \item \textbf{predict} where tokenization makes a model stumble: spelling, digits and text
+      that isn't English.
+  \end{enumerate}
+\end{frame}
+
+% ======================================================================== section 1
+\section{The unit a model reads}
+
+\begin{frame}{Text has to become numbers}
+  \begin{itemize}
+    \item A network computes with numbers, so text has to become numbers first.
+    \item Guide 1 did it the simplest way: a fixed list of 27 characters (the space and a to z),
+      each character standing for its index in the list.
+    \item A language model does the same thing with a \textbf{longer list} and \textbf{bigger
+      units}.
+  \end{itemize}
+  \pause
+  \vspace{2mm}
+  \begin{itemize}
+    \item One unit of text is a \term{token}. The list is the \textbf{vocabulary} $\mathcal{V}$,
+      of size $\lvert\mathcal{V}\rvert$ (27 in Guide 1). The model reads from the same list it
+      writes to.
+    \item A token's index in the list is its \term{token ID}, an integer counted from 0.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{The tokenizer converts in both directions}
+  \begin{center}
+  \begin{tikzpicture}[node distance=1.2cm,
+      box/.style={draw=primerRuleStrong,rounded corners=2pt,minimum height=0.75cm,font=\small,inner sep=4pt},
+      net/.style={box,fill=primerAccent!10,draw=primerAccent}]
+    \node[box] (txt) {text};
+    \node[box,right=2.2cm of txt] (ids) {token IDs};
+    \node[net,right=1.8cm of ids] (nn) {network};
+    \draw[-{Stealth},primerInk] ([yshift=1.5mm]txt.east) -- node[above,font=\small] {encode} ([yshift=1.5mm]ids.west);
+    \draw[-{Stealth},primerInk] ([yshift=-1.5mm]ids.west) -- node[below,font=\small] {decode} ([yshift=-1.5mm]txt.east);
+    \draw[-{Stealth},primerInk] (ids) -- (nn);
+    \draw[dashed,primerMuted] ($(ids.north west)+(-0.5,0.5)$) rectangle ($(nn.south east)+(0.3,-0.6)$);
+    \node[font=\scriptsize,primerMuted,anchor=north east] at ($(nn.south east)+(0.3,-0.6)$) {the ID side: no letter ever gets here};
+  \end{tikzpicture}
+  \end{center}
+  \vspace{2mm}
+  \begin{itemize}
+    \item The \term{tokenizer} holds the list. It \term{encode}s text into a sequence of token IDs
+      and \term{decode}s token IDs back into text.
+    \item The network receives integers and outputs a probability for each integer in the list.
+  \end{itemize}
+  \pause
+  \begin{keyidea}[The question for today]
+    What should the unit be: a character, a word, or something in between? The choice sets how
+    long every input is and how big the list has to be.
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{Where does the tokenizer sit relative to the network, and what crosses the boundary
+    between them?}
+  {The tokenizer encodes text into token IDs before the network, and decodes token IDs back into
+    text. The network itself only receives integers and outputs a probability for each one; it
+    never sees a letter.}
+\end{frame}
+
+% ======================================================================== section 2
+\section{Two bad extremes}
+
+\begin{frame}{Count Guide 1's toy text two ways}
+  \primercode{27}
+  \primeroutput{27}
+  \cellnote{27}
+  \vspace{1mm}
+  {\small The code is plain Python until GPT-2, in blocks that run in order and share variables,
+  like notebook cells.\par}
+\end{frame}
+
+\begin{frame}{Characters: a tiny list, long sequences}
+  \begin{center}\small
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    \textbf{Unit} & \textbf{Tokens for the toy text} & \textbf{Distinct tokens (vocabulary)}\\
+    \midrule
+    Characters & 128 & 15\\
+    Words & 33 & 12\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item Only 15 of Guide 1's 27 characters turn up; the text never uses the other 12 letters.
+    \item<2-> \textbf{Characters}: the vocabulary is tiny, and a new word can't catch it out, since
+      every new word is spelled with old letters.
+    \item<3-> \textbf{The price is length}: 128 tokens to say 33 words, and one token carries very
+      little. A model spends computation on every token it reads, and Guide 4 shows how fast that
+      cost grows with length.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Words: short sequences, until a new word arrives}
+  \primercode{51}
+  \primeroutput{51}
+  \cellnote{51}
+\end{frame}
+
+\begin{frame}{The rug is gone}
+  \begin{itemize}
+    \item ``rug'' has no ID: the tokenizer falls back on the \term{unknown token}, \tok{<unk>}, ID 12.
+    \item Encoding no longer fails, but decoding returned \tok{the cat sat on the <unk>}: every
+      unseen word becomes the same ID 12, and nothing after the tokenizer can tell which it was.
+  \end{itemize}
+  \pause
+  \begin{itemize}
+    \item A longer list has the same hole: real text keeps producing names, typos, product codes,
+      slang and variable names. A word vocabulary grows without limit or stays full of gaps.
+    \item It also wastes what it has: ``cat'' and ``cats'' would be two unrelated entries.
+  \end{itemize}
+  \pause
+  \begin{keyidea}[What we want, all at once]
+    Short sequences, no unknown tokens, a vocabulary of manageable size. Two moves: pieces of
+    words chosen by counting, with bytes underneath as a safety net.
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{One sentence, three splits}
+  \begin{columns}[c]
+    \column{0.66\textwidth}
+    \vspace{-3mm}
+    \primerfigure[0.8\textheight]{1}
+    \column{0.32\textwidth}
+    \begin{itemize}
+      \item \textbf{Characters}: 22 tokens.
+      \item \textbf{Words}: 6 tokens.
+      \item \textbf{The tokenizer we build next}: 11 tokens, pieces of words.
+    \end{itemize}
+    \vspace{2mm}
+    {\footnotesize\color{primerMuted}A small bracket marks a space. Figure 1 of the guide.\par}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{The toy text is 128 characters and 33 words. Give one reason to prefer each unit, and
+    the failure that rules each one out.}
+  {Characters: a tiny vocabulary (15 here), and no new word is unknown as long as it's spelled
+    with letters already in the list, but sequences are about
+    four times longer, and every token costs computation. Words: short sequences, but any unseen
+    word collapses to \tok{<unk>} and is lost, and related forms like ``cat'' and ``cats'' share
+    nothing.}
+\end{frame}
+
+% ======================================================================== section 3
+\section{Learning the vocabulary from data: byte-pair encoding}
+
+\begin{frame}{The idea: glue the most frequent pair, again and again}
+  \begin{enumerate}
+    \item Start with characters as the tokens.
+    \item<2-> Find the pair of adjacent tokens that occurs most often in the text.
+    \item<3-> Glue it into one new token and add that token to the vocabulary.
+    \item<4-> Repeat.
+  \end{enumerate}
+  \uncover<5->{%
+  \begin{itemize}
+    \item Each glued pair is a \term{merge}; the procedure is \term{byte-pair encoding (BPE)}.
+    \item The name comes from a compression algorithm that merged pairs of bytes (Gage, 1994),
+      adapted for translation models by Sennrich, Haddow \& Birch (2016). We merge characters
+      for now; bytes come back two sections on.
+  \end{itemize}}
+\end{frame}
+
+\begin{frame}{One rule first: pre-tokenization}
+  \term{Pre-tokenization}: split the text into words first, and let merges happen only inside a
+  word, never across two.
+  \begin{itemize}
+    \item For now a word is a run of letters (GPT-2's rule is fussier; we'll see it run).
+    \item<2-> Without it, a token could straddle two words, useful only when those two words meet
+      again. The trainer would also rescan the whole text after every merge.
+    \item<3-> With it, no pair spans a word boundary, so the trainer keeps a table of
+      \textbf{distinct words and their counts} in place of the full text.
+  \end{itemize}
+  \uncover<4->{%
+  \begin{keyidea}[Where do the spaces go?]
+    Decoding must return the original text exactly, so each word keeps the space in front of it:
+    \tok{the}, \tok{\vsp cat}, \tok{\vsp sat}, \ldots\ You'll see it in GPT-2's output, where
+    most tokens carry a leading space.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{The trainer, part 1: gluing one pair inside a word}
+  \primercodepart{89}{1}
+  \vspace{1mm}
+  {\small \texttt{merge\_pair} walks along a word (a tuple of tokens) and glues every occurrence of
+  the pair \texttt{(a, b)} into one token.\par}
+  \cellnote{89}
+\end{frame}
+
+\begin{frame}{The trainer, part 2: a table of words, not the whole text}
+  \primercodepart{89}{2}
+  \vspace{2mm}
+  \begin{itemize}
+    \item The pattern \texttt{" ?[a-z]+"} is pre-tokenization: a run of letters, with the space in
+      front of it if there is one.
+    \item \texttt{Counter} maps each distinct word, as a tuple of tokens, to how often it occurs.
+      The trainer works on this table from now on.
+    \item \texttt{merges} will hold the learned pairs, in order.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{The trainer, part 3: count, pick, merge, repeat}
+  \primercodepart{89}{3}
+\end{frame}
+
+\begin{frame}{The trainer, part 4: ten merges on the toy text}
+  \renewcommand\codesize{\footnotesize}
+  \primercodepart{89}{4}
+  \vspace{2mm}
+  {\small Each step of the loop counts every adjacent pair, weighted by how often its word occurs,
+  takes the most frequent, merges it everywhere and prints the text's new length.\par}
+  \vspace{3mm}
+  \begin{keyidea}[Predict first]
+    The text starts at 128 tokens. Which pair do you expect to be merged first, and roughly how
+    long is the text after 10 merges?
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{The trainer's output: the merge table}
+  \renewcommand\codesize{\small}
+  \primeroutput{89}
+  \cellnote{89}
+\end{frame}
+
+\begin{frame}{Reading the merge table}
+  \begin{itemize}
+    \item \tok{t} and \tok{h} sit next to each other 11 times (10 in ``the'', once in ``then''):
+      they become \tok{th}, then \tok{th} + \tok{e} becomes \tok{the}.
+    \item<2-> Merge 3 attaches the space: seen 10 times, not 11, because the text's very first word
+      has no space before it. So \tok{the} and \tok{\vsp the} are two different tokens.
+    \item<3-> By merge 8 the algorithm has built \tok{\vsp cat}. Nobody told it which words matter:
+      frequent words became single tokens because their letters keep turning up side by side.
+    \item<4-> \textbf{Ties.} Merge 1 was a three-way tie (\tok{h}+\tok{e} and \tok{\vsp}+\tok{t} also
+      occur 11 times). \texttt{max} takes the pair that sorts last alphabetically: arbitrary, but
+      fixed, so your run prints the same table.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{The first four merges, step by step}
+  \begin{columns}[c]
+    \column{0.66\textwidth}
+    \vspace{-3mm}
+    \primerfigure[0.7\textheight]{2}
+    \column{0.32\textwidth}
+    \begin{itemize}
+      \item Each merge glues one pair of neighbouring tokens wherever it occurs.
+      \item The count underneath is the length of the whole toy text after that merge.
+      \item ``dog'' is untouched until merges 6 and 10.
+    \end{itemize}
+    \vspace{2mm}
+    {\footnotesize\color{primerMuted}Figure 2 of the guide, on three words of the toy text.\par}
+  \end{columns}
+\end{frame}
+
+\mode<handout>{%
+\begin{frame}{The first four merges, every step (1 of 2)}
+  \begin{columns}[T]
+    \column{0.49\textwidth}\primerfigonly[0.66\textheight]{2}{1}
+    \column{0.49\textwidth}\primerfigonly[0.66\textheight]{2}{2}
+  \end{columns}
+  {\footnotesize\color{primerMuted}The starting split, then merge 1 (Figure 2's steps 1 and 2).\par}
+\end{frame}
+\begin{frame}{The first four merges, every step (2 of 2)}
+  \begin{columns}[T]
+    \column{0.49\textwidth}\primerfigonly[0.66\textheight]{2}{3}
+    \column{0.49\textwidth}\primerfigonly[0.66\textheight]{2}{4}
+  \end{columns}
+  {\footnotesize\color{primerMuted}Merges 2 and 3 (steps 3 and 4); merge 4 is on the previous page.\par}
+\end{frame}}
+
+\begin{frame}{The number of merges is the dial}
+  After 10 merges: 25 vocabulary entries (the 15 characters plus one per merge), and the toy text
+  is 65 tokens, about half of its 128 characters.
+  \vspace{2mm}
+  \begin{center}
+  \begin{tikzpicture}[x=1cm,y=1cm]
+    \draw[primerRuleStrong,line width=1pt,{Stealth}-{Stealth}] (0,0) -- (10,0);
+    \node[anchor=north,font=\small,align=center] at (0,-0.15) {stop early:\\near characters};
+    \node[anchor=north,font=\small,align=center] at (10,-0.15) {no pairs left:\\every word one token};
+    \node[anchor=south,font=\small,primerMuted] at (5,0.12) {each extra merge: one more entry, a slightly shorter text};
+  \end{tikzpicture}
+  \end{center}
+  \begin{center}\small GPT-2's designers stopped at 50,000 merges.\end{center}
+  \pause
+  \begin{itemize}
+    \item \textbf{Why stop at all?} \recall{1}{a network outputs one logit per vocabulary entry.}
+      Every entry adds parameters and work at the output, and a rare entry turns up too seldom to
+      be learned well.
+    \item<3-> 50,000 is a chosen trade-off between sequence length and vocabulary size.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Trained before the model exists}
+  \begin{itemize}
+    \item A tokenizer is trained like this \textbf{once}, on a large sample of text, before the
+      model exists.
+    \item ``Trained'' here means counting and merging, with \textbf{no gradient descent}.
+    \item Its merge list is then frozen, and the model is trained on the token IDs it outputs.
+  \end{itemize}
+  \vspace{3mm}
+  \begin{keyidea}[Two different kinds of learning]
+    The tokenizer's vocabulary is fixed by counting, then frozen. The model's parameters are
+    learned afterwards, by gradient descent (Guide 1), on the token IDs the tokenizer outputs.
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{After merge 3 the toy vocabulary contains both \tok{the} and \tok{\vsp the}. Why two
+    tokens, and why was the merge seen 10 times rather than 11?}
+  {Each word keeps the space in front of it, so ``the'' at the start of the text (no space before
+    it) and ``the'' everywhere else are different strings. The pair \tok{\vsp} + \tok{the} occurs
+    only where a space precedes ``the'': 10 of its 11 appearances.}
+\end{frame}
+
+% ======================================================================== section 4
+\section{Encoding text the tokenizer has never seen}
+
+\begin{frame}{Replay the merges, in order}
+  Training left an ordered list of merges. To encode new text:
+  \begin{enumerate}
+    \item pre-tokenize it the same way (accepting any non-space characters, so we can feed it
+      letters the trainer never saw);
+    \item split each word into characters;
+    \item replay the merges \textbf{in the order they were learned}.
+  \end{enumerate}
+  \pause
+  \begin{keyidea}[Why order matters]
+    Later merges are built from earlier ones. Merge 7 glues \tok{c} to \tok{at}, and there is no
+    \tok{at} until merge 4 has run.
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{The encoder}
+  \primercodesolo{165}
+  \cellnote{165}
+\end{frame}
+
+\begin{frame}{The encoder's output}
+  \begin{keyidea}[Predict first]
+    ``cats'' and ``bat'' never appear in the toy text. Which pieces will each become, and will any
+    piece lack an ID?
+  \end{keyidea}
+  \vspace{2mm}
+  \renewcommand\codesize{\small}
+  \only<2-| handout:1>{\primeroutput{165}
+  \vspace{2mm}
+  {\small \texttt{encode} stops at the tokens so you can see them; the IDs come from looking each one
+  up in \texttt{vocab}. The last line, 11 tokens, is the third split in Figure 1.\par}}
+\end{frame}
+
+\begin{frame}{``cats'' works; ``bat'' doesn't}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{keyidea}[\tok{the cats}]
+      ``cats'' appears nowhere in the toy text, and it still encodes cleanly: the known token
+      \tok{\vsp cat} followed by the letter \tok{s}. A new word is spelled out of familiar
+      pieces, where the word tokenizer flattened it to \tok{<unk>}.
+    \end{keyidea}
+    \column{0.48\textwidth}
+    \uncover<2->{%
+    \begin{keyidea}[\tok{the bat}]
+      \tok{\vsp}, \tok{b}, \tok{at}: and \tok{b} isn't in the vocabulary, because the toy text has
+      no letter b. It has no ID, so this tokenizer would need an unknown token after all.
+    \end{keyidea}}
+  \end{columns}
+  \vspace{2mm}
+  \begin{itemize}
+    \item Don't read a split as grammar: BPE splits by \textbf{frequency}. A plural common enough
+      in the training text gets its own token; only rarer words fall back to shared pieces.
+    \item<3-> The vocabulary began as the 15 characters that happened to appear. Capitals, digits,
+      punctuation, every other alphabet: still unknown.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{Why must \texttt{encode} replay the merges in the order they were learned? What would go
+    wrong encoding \tok{\vsp cat} if merge 7 (\tok{c} + \tok{at}) ran before merge 4 (\tok{a} +
+    \tok{t})?}
+  {Merge 7 looks for the token \tok{at}, which only exists after merge 4. Run first, it finds no
+    \tok{at} and does nothing, and merge 8 then finds no \tok{cat} to join to the space:
+    \tok{\vsp cat} would end as \tok{\vsp}, \tok{c}, \tok{at} instead of the single token
+    \tok{\vsp cat}.}
+\end{frame}
+
+% ======================================================================== section 5
+\section{Bytes: the fallback that never fails}
+
+\begin{frame}{Start from a set that is complete by construction}
+  \begin{itemize}
+    \item Any text in a file or on a network is stored as a sequence of \term{byte}s, each a number
+      from 0 to 255.
+    \item \term{UTF-8} (Unicode Transformation Format, 8-bit) is the standard rule for turning
+      characters into bytes: one byte for each plain English letter, digit and punctuation mark,
+      and between two and four for every other character.
+  \end{itemize}
+  \vspace{1mm}
+  \primercode{196}
+  \primeroutput{196}
+  \cellnote{196}
+  \vspace{1mm}
+  {\small ``café'' is 4 characters but 5 bytes (the é takes two: 195 and 169); the cat emoji takes
+  four. Whatever the script, the bytes come from the same 256 values.\par}
+\end{frame}
+
+\begin{frame}{Byte-level BPE: nothing can be unknown}
+  \begin{itemize}
+    \item \term{Byte-level BPE} runs the same merging algorithm with the 256 byte values as the
+      starting vocabulary.
+    \item Frequent byte sequences still merge into pieces of words and whole words.
+    \item Text the trainer never saw falls back to shorter pieces and, in the worst case, to single
+      bytes, which are \textbf{always} in the vocabulary.
+  \end{itemize}
+  \pause
+  \begin{keyidea}
+    A byte-level tokenizer needs no unknown token, because nothing can be unknown to it. Our toy
+    started from the characters in the text, which kept its table readable; GPT-2's trainer, like
+    many production trainers since, starts from bytes.
+  \end{keyidea}
+\end{frame}
+
+\begin{frame}{GPT-2's vocabulary, by arithmetic}
+  GPT-2 uses byte-level BPE with a vocabulary of 50,257 tokens (Radford et al., 2019):
+  \[
+    \underbrace{256}_{\text{byte tokens}} \;+\; \underbrace{50{,}000}_{\text{merges}}
+    \;+\; \underbrace{1}_{\text{special token}} \;=\; 50{,}257
+  \]
+  \pause
+  \begin{itemize}
+    \item A \textbf{special token} is a reserved ID that stands for a control signal and never for a
+      piece of text.
+    \item GPT-2's is the \term{end-of-text token}, \tok{<|endoftext|>}, ID 50256, the last in the
+      list. In a long stream of training text it marks where one document ends and the next
+      begins.
+    \item GPT-2 has no other special tokens.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Going deeper (optional): other tokenizers you'll meet}
+  \small
+  \begin{itemize}
+    \item \textbf{More special tokens.} Other families mark the beginning or end of a sequence, or
+      padding that fills short sequences out to a common length. Tokenizers that don't start from
+      bytes also keep an unknown token.
+    \item \textbf{WordPiece} (Schuster \& Nakajima, 2012; Wu et al., 2016), BERT's tokenizer
+      (Devlin et al., 2019): also merges, but scores a candidate merge by how much more probable it
+      makes the training text, and encodes by taking the longest matching piece first. It marks a
+      piece that \emph{continues} a word with \tok{\#\#}, where GPT-2 marks a piece that
+      \emph{starts} one with a space.
+    \item \textbf{Unigram} (Kudo, 2018) works the other way: start from a large vocabulary of
+      candidate pieces and prune it down. T5 (Raffel et al., 2020) uses it through the
+      SentencePiece library (Kudo \& Richardson, 2018).
+    \item \textbf{Normalization.} Some tokenizers lowercase text or strip accents before
+      splitting. GPT-2's does neither, so capitals and accents survive encoding.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{Why does GPT-2's tokenizer need no unknown token, when our toy tokenizer couldn't encode
+    ``bat''? And where does 50,257 come from?}
+  {It starts from all 256 byte values, and any text is a sequence of bytes, so the worst case is
+    single-byte tokens, which are always in the list. The toy started from the 15 characters that
+    appeared, so a b had no ID. $256 + 50{,}000 + 1 = 50{,}257$: byte tokens, merges, and the one
+    special token.}
+\end{frame}
+
+% ======================================================================== section 6
+\section{A real tokenizer on a real sentence}
+
+\begin{frame}{The running example meets GPT-2}
+  \begin{itemize}
+    \item The series traces one short input, ``The cat sat on the'', through every stage of a
+      language model. Tokenization is the first stage.
+    \item \textbf{Why GPT-2?} Its tokenizer is frozen and small enough to inspect. The model you
+      call today has its own tokenizer and will give different counts, so count with that one.
+    \item The \texttt{tiktoken} library ships it; outputs come from version 0.14.0, pinned as of
+      October 2026. Its first call downloads two vocabulary files (about 1.5 MB in total),
+      checks each against a stored hash, and caches them.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Five tokens}
+  \primercode{235}
+  \primeroutput{235}
+  \cellnote{235}
+\end{frame}
+
+\begin{frame}{Reading the output}
+  \begin{center}\small
+  \begin{tabular}{@{}lccccc@{}}
+    \toprule
+    \textbf{Token} & \tok{The} & \tok{\vsp cat} & \tok{\vsp sat} & \tok{\vsp on} & \tok{\vsp the}\\
+    \textbf{ID} & 464 & 3797 & 3332 & 319 & 262\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item Five tokens, so the \term{sequence length} $n$ is 5.
+    \item<2-> Decoding gives back the exact string, capital T included. GPT-2's tokenizer starts
+      from bytes, keeps every space inside a token and changes nothing before it splits, so it is
+      \term{lossless}: \texttt{decode} always undoes \texttt{encode}.
+    \item<3-> The last line confirms the vocabulary size, 50257, and the end-of-text token's ID,
+      50256.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{The same text, encoded as GPT-2 sees it}
+  \vspace{-2mm}
+  \primerfigure[0.7\textheight]{3}
+  \vspace{-2mm}
+  \begin{center}\footnotesize
+    Five tokens, four with a leading space (the small bracket), each looked up to get its ID. The
+    faded row is the next stage: Guide 3. {\color{primerMuted}(Figure 3 of the guide)}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Capitals, spaces and the byte fallback}
+  \primercodesolo{261}
+  \cellnote{261}
+\end{frame}
+
+\begin{frame}{Capitals, spaces and the byte fallback: output}
+  \begin{keyidea}[Predict first]
+    Change the capital or drop the space and you get a different token. Will \tok{\vsp cat},
+    \tok{\vsp Cat}, \tok{cat} and \tok{\vsp CAT} share any ID? Will ``Akwirw ier'' need an
+    unknown token?
+  \end{keyidea}
+  \renewcommand\codesize{\footnotesize}
+  \only<2-| handout:1>{\primeroutput{261}}
+\end{frame}
+
+\begin{frame}{Reading it, line by line}
+  \small
+  \begin{itemize}
+    \item \tok{\vsp cat}, \tok{\vsp Cat}, \tok{cat}, \tok{\vsp CAT}: 3797, 5181, 9246, 38348. To the
+      model, \textbf{unrelated integers}. Nothing about 3797 and 5181 says they name the same
+      animal; Guide 3 shows how training makes them related.
+    \item<2-> ``the bat'', which left the toy tokenizer holding a \tok{b}, is two ordinary tokens.
+    \item<3-> The invented ``Akwirw ier'' comes out as six familiar pieces, no unknown token. The
+      space stands alone because the merges that build \tok{ier} come earlier in the list and run
+      first, and no learned merge joins a space to \tok{ier}, so the space falls back to its own
+      single-byte token.
+    \item<4-> The emoji's four bytes become three tokens: one merge glued the first two bytes. The
+      256 byte tokens fill IDs 0 to 255, in a different order: 238 and 230 are the single-byte
+      tokens for bytes 144 and 136.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{A simplification, corrected}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{keyidea}[What we taught]
+      Pre-tokenization splits the text into words, each keeping its leading space.
+    \end{keyidea}
+    \column{0.48\textwidth}
+    \begin{keyidea}[What GPT-2 does]
+      It also separates digits, punctuation and contraction endings such as \tok{'s} into tokens
+      of their own, and has its own rule for runs of several spaces.
+    \end{keyidea}
+  \end{columns}
+  \vspace{3mm}
+  The apostrophe line shows it: \tok{The}, \tok{\vsp cat}, \tok{'s}, \tok{\vsp 2}, \tok{\vsp mats}.
+  \vspace{2mm}
+  \begin{itemize}
+    \item The same line: \tok{\vsp mats} is one token, as unrelated to \tok{\vsp mat} as
+      \tok{\vsp Cat} is to \tok{\vsp cat}, because a frequent plural earns its own entry.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{\tok{\vsp cat} is ID 3797 and \tok{\vsp Cat} is ID 5181. What does the network know about
+    their relationship before training, and why does ``Akwirw ier'' still encode without an
+    unknown token?}
+  {Nothing: they are two unrelated integers, and only training (Guide 3) relates them. ``Akwirw
+    ier'' falls back to shorter pieces the merges do know, and in the worst case to single bytes,
+    which are always in the vocabulary.}
+\end{frame}
+
+% ======================================================================== section 7
+\section{Where tokenization shows through}
+
+\begin{frame}{Predict first: where will the tokenizer show through?}
+  \begin{itemize}
+    \item How many tokens is ``strawberry'' with no space in front? With one?
+    \item Will a seven-digit number split along place value (thousands, hundreds)?
+    \item The same sentence in English, Norwegian, German and French: which is cheapest in tokens?
+  \end{itemize}
+  \vspace{2mm}
+  {\small All computed with GPT-2's tokenizer on the next slide.\par}
+\end{frame}
+
+\begin{frame}{Spelling, digits and other languages}
+  \primercode{299}
+  \primeroutput{299}
+  \cellnote{299}
+\end{frame}
+
+\begin{frame}{Spelling: the model receives IDs, not letters}
+  \begin{itemize}
+    \item ``strawberry'' with no space before it is three tokens; with one it is a single token.
+      Either way, the ten letters aren't among what the model receives.
+    \item<2-> It can only learn spelling \textbf{indirectly}: the same word turns up split in
+      different ways in the same kinds of sentences, so training can teach it to respond to
+      \tok{\vsp strawberry} and to \tok{st}\,+\,\tok{raw}\,+\,\tok{berry} alike. Rarer words split
+      all the way down to single letters, linking pieces to letters (Kaushal \& Mahowald, 2022).
+    \item<3-> That's why ``how many r's are in strawberry'' became a well-known stumbling block for
+      chat models around 2024. Newer models often get it right, but what they receive is still
+      IDs.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Numbers: grouped by frequency, not place value}
+  \begin{columns}[c]
+    \column{0.42\textwidth}
+    \begin{center}\large
+      \tok{\vsp 1234567} $\to$ \tb{\vsp 123}\,\tb{45}\,\tb{67}\\[3mm]
+      \tok{\vsp 2026} $\to$ \tb{\vsp 20}\,\tb{26}\\[2mm]
+      {\footnotesize\color{primerMuted}one box per token\par}
+    \end{center}
+    \column{0.55\textwidth}
+    \begin{itemize}
+      \item Digits are grouped by which sequences were frequent in the training text, with no
+        regard for place value.
+      \item<2-> Adding or comparing numbers means lining digits up by place. Here the tokens hold
+        three, two and two digits, and another seven-digit number can split differently.
+      \item<3-> The model has to work out an alignment the tokens don't hand it: one reason
+        arithmetic on long numbers can go wrong.
+    \end{itemize}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Other languages cost more}
+  \begin{center}\small
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    \textbf{Sentence} & \textbf{Bytes} & \textbf{GPT-2 tokens}\\
+    \midrule
+    The cat sat on the mat. & 23 & 7\\
+    Katten satt på matten. (Norwegian) & 23 & 9\\
+    Die Katze saß auf der Matte. (German) & 29 & 10\\
+    Le chat était assis sur le tapis. (French) & 34 & 12\\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \begin{itemize}
+    \item Same meaning; English is cheapest. GPT-2's merges were almost certainly learned from web
+      text that was mostly English, so English words tend to be whole tokens.
+    \item<2-> The Norwegian sentence has exactly as many bytes as the English one and still needs
+      two more tokens.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{What you pay for, and what you run out of}
+  \begin{itemize}
+    \item A model's \term{context length} is the largest number of tokens it can read at once:
+      1,024 for GPT-2 (Radford et al., 2019). Models since read far more, but the limit is still a
+      token count.
+    \item<2-> So the same document \textbf{costs more and fits less} in a language the tokenizer
+      splits finely.
+    \item<3-> The rule of thumb, about three quarters of a word per token, is folklore tuned to
+      English prose. The table's English sentence is 6 words in 7 tokens; the French one, 7 words
+      in 12.
+  \end{itemize}
+  \uncover<4->{%
+  \begin{keyidea}[In practice]
+    Count with the tokenizer of the model you'll call, on text in the languages you'll send.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{A colleague estimates a French document's API cost from its word count and the
+    three-quarters-of-a-word rule. What's wrong with the estimate?}
+  {The rule is tuned to English prose. GPT-2 splits other languages into more, smaller pieces: the
+    French sentence is 7 words in 12 tokens against English's 6 in 7. The French document is
+    likely to cost more and fit less than the estimate says. Count with the model's own tokenizer.}
+\end{frame}
+
+% ======================================================================== section 8
+\section{From tokens to training examples}
+
+\begin{frame}{The same shift by one position}
+  \recall{1}{a training example paired one character with the character that came next.} With
+  tokens, the pairing is the same shift by one:
+  \vspace{1mm}
+  \primercode{337}
+  \primeroutput{337}
+  \cellnote{337}
+  \pause
+  \begin{itemize}
+    \item Each position's target is the token that follows it: after 464 comes 3797, and after 319
+      comes 262.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{A probability for every token, never one word}
+  \begin{itemize}
+    \item What the model sees when it predicts a target is a separate matter: Guide 1's network saw
+      one item; Guide 4 gives it the whole preceding sequence.
+    \item As in Guide 1, the model outputs a probability for every entry in its list at each
+      position: here all 50,257 tokens in $\mathcal{V}$, never one chosen word.
+    \item<2-> An ID is still a bare label. Token 3797 isn't larger than token 262 in any sense
+      that means something, and a network can't do useful arithmetic on labels.
+    \item<3-> For now, an ID is just a label; Guide 3 turns each one into a vector.
+  \end{itemize}
+  \uncover<4->{%
+  \begin{keyidea}
+    A tokenizer is a learned vocabulary of frequent pieces of text that turns any text into a
+    sequence of integers. It decides how long every input is, what it costs, and which details the
+    model gets directly and which it has to learn the hard way.
+  \end{keyidea}}
+\end{frame}
+
+\begin{frame}{Check your understanding}
+  \checkq{For the IDs \texttt{[464, 3797, 3332, 319, 262]}, what are the inputs and targets, and
+    why can't the network just use 3797 as a number?}
+  {Inputs \texttt{[464, 3797, 3332, 319]}, targets \texttt{[3797, 3332, 319, 262]}. The ID is a
+    position in a list, a label: 3797 isn't ``more'' than 262 in any meaningful way, so arithmetic
+    on it means nothing until Guide 3 gives each ID a learned vector.}
+\end{frame}
+
+% ======================================================================== closing
+\section*{Wrap-up}
+
+\begin{frame}{What we simplified, and where it's repaid}
+  \begin{center}\small
+  \begin{tabular}{@{}L{0.36\textwidth}L{0.42\textwidth}l@{}}
+    \toprule
+    \textbf{In this guide} & \textbf{In full} & \textbf{Repaid}\\
+    \midrule
+    \simplification{pre-tokenization splits text into words, each keeping its leading space}{GPT-2 also separates digits, punctuation and contraction endings, and handles runs of spaces}{this guide}
+    \addlinespace
+    \simplification{the toy BPE starts from the characters in the text}{byte-level BPE starts from the 256 byte values}{this guide}
+    \addlinespace
+    \simplification{treat a token ID as just a label}{each ID selects a row of a learned table}{Guide 3}
+    \addlinespace
+    \simplification{the model sees one token at a time}{the whole preceding sequence}{Guide 4}
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \vspace{2mm}
+  {\small\color{primerMuted}Repaid today: Guide 1's ``a token is roughly a word''.}
+\end{frame}
+
+\begin{frame}{Summary}
+  \begin{enumerate}\small
+    \item A model reads token IDs. The tokenizer encodes text into IDs and decodes them back; the
+      network never sees a letter.
+    \item Characters give long sequences; words give unknown tokens. The toy text: 128 characters,
+      33 words.
+    \item BPE builds the vocabulary by repeatedly merging the most frequent adjacent pair inside
+      pre-tokenized words; the number of merges trades vocabulary size against length.
+    \item Encoding replays the merges in order, so unseen words are spelled from known pieces.
+    \item Starting from the 256 byte values makes nothing unknown. GPT-2: $256 + 50{,}000 + 1 =
+      50{,}257$ tokens.
+    \item ``The cat sat on the'' is five GPT-2 tokens, 464 3797 3332 319 262; the tokenizer is
+      lossless, and capitals and spaces make different tokens.
+    \item Tokenization shows through in spelling, digits and other languages, and token counts are
+      what you pay for and what you run out of.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Exercises: try it in the notebook}
+  \small
+  \begin{enumerate}
+    \item \textbf{By hand.} On the toy text, find the most frequent adjacent pair inside the
+      pre-tokenized words (each with its leading space) before running anything, and check your answer against merge 1 (cell In
+      [\primercell{89}]). Why is the tie broken the way it is?
+    \item \textbf{The dial} (cell In [\primercell{89}]). Train with \free{5 and then 30} merges.
+      Predict each vocabulary size from the rule (characters plus one per merge) and say which run
+      leaves the text shorter. When does the loop stop early?
+    \item \textbf{Unseen words} (cell In [\primercell{165}]). First re-run cell In [\primercell{89}]
+      with 10 merges, so \texttt{merges} is the guide's list again. Then encode \free{``the dogs ran''} and
+      \free{``The cat''} with the toy encoder. Predict which pieces come out and which have no ID.
+    \item \textbf{Bytes} (cell In [\primercell{196}]). Count the bytes of a word in a language you
+      know that isn't English. How many tokens does GPT-2 give it (cell In [\primercell{261}])?
+    \item \textbf{Your name} (cell In [\primercell{261}]). Encode your name with and without a
+      leading space, and in capitals. Explain why the IDs differ.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Further reading}
+  \small
+  \begin{itemize}
+    \item P.\ Gage (1994). A new algorithm for data compression. \emph{C Users Journal}.
+    \item R.\ Sennrich, B.\ Haddow \& A.\ Birch (2016). Neural machine translation of rare words with
+      subword units. \emph{ACL}.
+    \item A.\ Radford et al.\ (2019). Language models are unsupervised multitask learners.
+      \emph{OpenAI}. \ (GPT-2)
+    \item T.\ Kudo (2018). Subword regularization: improving neural network translation models with
+      multiple subword candidates. \emph{ACL}. \ (Unigram)
+    \item T.\ Kudo \& J.\ Richardson (2018). SentencePiece: a simple and language independent subword
+      tokenizer and detokenizer for neural text processing. \emph{EMNLP}.
+    \item A.\ Kaushal \& K.\ Mahowald (2022). What do tokens know about their characters and how do
+      they know it? \emph{NAACL}.
+  \end{itemize}
+  {\small\color{primerMuted}Links for each, and for WordPiece, BERT and T5, are in the
+  \href{\guideurl}{guide}.}
+\end{frame}
+
+\begin{frame}{Next time: Guide 3, embeddings}
+  \begin{itemize}
+    \item Today's output is a sequence of integers, and an integer is only a label.
+    \item Guide 3 gives each token ID a learned vector the network can compute with, by letting
+      each ID select one row of a table.
+  \end{itemize}
+  \vspace{4mm}
+  \begin{keyidea}[Before next time]
+    Run the notebook from top to bottom and check that every printed number matches the slides.
+  \end{keyidea}
+\end{frame}
+
+\end{document}
