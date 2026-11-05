@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   pdf:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # Playwright 1.57 can't install Chromium on ubuntu-latest (26.04)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,7 +31,7 @@ jobs:
   # The lecture decks (slides/decks/), built in the pinned TeX Live image and checked against
   # their guides (tools/check_slides.py).
   slides:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # Playwright 1.57 can't install Chromium on ubuntu-latest (26.04)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,7 +56,7 @@ jobs:
   # The one-page visual guides (components/visual/), printed to A3 and checked against their
   # guides (tools/check_visuals.py).
   visuals:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # Playwright 1.57 can't install Chromium on ubuntu-latest (26.04)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
