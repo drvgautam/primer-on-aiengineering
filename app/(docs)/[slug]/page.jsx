@@ -56,7 +56,6 @@ export default async function GuidePage({ params }) {
             </a>
             <a href={notebookUrl(g)}>View the notebook on GitHub</a>
             {slidesUrl(g) ? <a href={slidesUrl(g)}>Lecture slides (PDF)</a> : null}
-            {visualUrl(g) ? <a href={visualUrl(g)}>Visual guide (PDF)</a> : null}
           </p>
           <nav className="pager" aria-label="Previous and next guide">
             {prev ? (
