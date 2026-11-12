@@ -1,6 +1,6 @@
 # Glossary
 
-One term per concept, as used in Guides 1–10. Declared synonyms are other names you'll meet in the literature.
+One term per concept, as used in Guides 1–11. Declared synonyms are other names you'll meet in the literature.
 
 | Term (used in the guides) | Definition | Declared synonyms | Guide |
 |---|---|---|---|
@@ -121,7 +121,7 @@ One term per concept, as used in Guides 1–10. Declared synonyms are other name
 | encoder, decoder (optional) | The two halves of the original transformer: the encoder reads the input sentence, the decoder writes the output; GPT-2 keeps only the decoder side. | — | 5 |
 | warm-up | A stretch at the start of training where the learning rate is raised slowly from near zero; named only in Guide 5, part of the learning-rate schedule in Guide 7. | — | 5 |
 | piece (of a block) | Informal word for any of a block's four ingredients: attention, the MLP, the residual connections and layer normalization. Wider than "part". | — | 5 |
-| character ID | In the character-level toys (Guides 1, 4, 5), a character's index in the 27-character vocabulary; plays the role of a token ID while single characters stand in for tokens. | — | 1 |
+| character ID | In the character-level toys (Guides 1 and 4–12), a character's index in the 27-character vocabulary; plays the role of a token ID while single characters stand in for tokens. | — | 1 |
 | starting parameters | The small random values a network's parameters hold before training. | initialization (other sources, and Guide 5) | 1 |
 | memorization | Reaching a low training loss by reproducing the training text, which shows nothing about text the model hasn't seen; held-out text (Guide 7) tells it apart from learning. | memorizing | 5 |
 | next-token distribution | The softmax of the last position's logits: a probability for every token in the vocabulary, summing to 1. | $p$; distribution | 6 |
@@ -138,7 +138,7 @@ One term per concept, as used in Guides 1–10. Declared synonyms are other name
 | calibration | How well a model's probabilities match how often it is right: calibrated means right about 70% of the time when it says 0.7. | calibrated | 6 |
 | end-of-text token | GPT-2's special token 50256; in generation, choosing it ends the loop. | — | 2 |
 | prompt | The text given to the model before generation starts; processed in one parallel pass. | — | 6 |
-| stop sequence (optional) | A string that ends generation when it appears in the output; named in Guide 6, used in Guide 8's toy (" and"). | stop marker, marker (Guide 8, informal) | 6 |
+| stop sequence (optional) | A string that ends generation when it appears in the output; named in Guide 6, used in Guide 8's toy and Guide 11's tool toy (" and"), listed among Guide 10's serving controls. | stop marker, marker (Guide 8, informal) | 6 |
 | repetition penalty (optional) | A generation-time adjustment that lowers the probability of tokens already produced; named only. | penalties for repeating tokens | 6 |
 | loss floor | (see "floor (loss floor)"); Guide 1's 0.884 is the one-character loss floor, never "limit" from Guide 6 on. | floor | 1 |
 | pre-training | Next-token training over a very large, general corpus, starting from random parameters. | — | 7 |
@@ -226,3 +226,14 @@ One term per concept, as used in Guides 1–10. Declared synonyms are other name
 | on-chip memory | A processor's small, fast memory beside its arithmetic units, far smaller than its main memory. | — | 10 |
 | scale (quantization) | The shared number that integer levels are multiplied by to recover weights, one per row in Guide 10's toy; unrelated to layer normalization's scale $\gamma$ and LoRA's $\alpha/r$. | — | 10 |
 | system prompt | Text an application puts at the start of every request to set the model's behavior, sent before the user's turns. | — | 10 |
+| application | The program that calls the model: it sends the prompt, reads the output, and decides what happens next, including whether to run a tool. | — | 11 |
+| tool | A function an application makes available to a model, such as a search, a calculator, a database query or an API; the application runs it, never the model. | — | 11 |
+| tool call | Text the model writes, in an agreed format, asking the application to run a tool. | call | 11 |
+| tool result | A tool's output, appended to the model's context by the application for the model to read. | result | 11 |
+| tool use | A model writing tool calls and reading their results, learned by fine-tuning on examples with loss only on model-written text. | function calling | 11 |
+| prompt injection | Instructions inside text the model reads, such as a tool result, that it may follow as if the user had given them; called indirect when they arrive through retrieved content. | indirect prompt injection (the retrieved-content case) | 11 |
+| constrained decoding | Giving zero probability (a logit of $-\infty$) to every token a required format doesn't allow next, before sampling; it guarantees the format, not the content. | — | 11 |
+| structured output | Output held to a JSON schema or a grammar by constrained decoding. | — | 11 |
+| agent | An application that runs the tool loop many times over: after each result the model writes its next call, until it writes an answer with no call or the application's step limit is reached. | — | 11 |
+| constraint mask | In constrained decoding, the additive mask added to the logits: 0 for tokens the required format allows next, $-\infty$ for the rest; the same additive trick as the causal mask (Guide 4); unrelated to the 0/1 loss mask (Guide 8). | mask (only where no loss mask or causal mask could be meant) | 11 |
+| transcript | The full text of a tool-using exchange in order: prompt, model-written text, calls and appended results; what a hosted application re-sends on each call. | — | 11 |

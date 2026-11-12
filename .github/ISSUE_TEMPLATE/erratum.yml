@@ -17,6 +17,7 @@ body:
         - "8. Fine-tuning"
         - "9. Alignment"
         - "10. Inference and serving"
+        - "11. Tool use and agents"
         - "Other / several"
     validations:
       required: true

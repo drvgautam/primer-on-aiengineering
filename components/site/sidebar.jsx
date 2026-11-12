@@ -47,7 +47,7 @@ export function Sidebar({ groups, coming }) {
               </ol>
             </div>
           ))}
-          {coming ? <p className="series-coming">{coming} more guides coming</p> : null}
+          {coming ? <p className="series-coming">{coming} more {coming === 1 ? "guide" : "guides"} coming</p> : null}
         </nav>
       </aside>
       {open ? <div className="doc-scrim" onClick={() => setOpen(false)} aria-hidden="true" /> : null}

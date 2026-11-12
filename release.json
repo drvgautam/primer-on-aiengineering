@@ -4,7 +4,7 @@
   "author": "Dr. Vinay Gautam",
   "repo": "drvgautam/primer-on-aiengineering",
   "branch": "main",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "cover": "book/ai-engineering-primer-cover.pdf",
   "parts": [
     {
@@ -54,17 +54,15 @@
         {
           "guide": 10,
           "slug": "inference"
+        },
+        {
+          "guide": 11,
+          "slug": "tools"
         }
       ]
     }
   ],
   "unreleased": [
-    {
-      "guide": 11,
-      "slug": "tools",
-      "title": "Tool use and agents: letting a model act",
-      "part": "Lifecycle"
-    },
     {
       "guide": 12,
       "slug": "rag",

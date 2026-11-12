@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 (2026-11-12)
+
+Guide 11 joins Part 2, "Lifecycle":
+
+- Guide 11, tool use and agents: the tool loop, in which the model only writes text and the application runs the tool; fine-tuning a model to write calls and copy their results, with loss only on the text the model writes; keeping changing facts in a tool instead of the weights; tool output the model ignores or misreads, and prompt injection; constrained decoding and structured output, and what a forced format does and doesn't guarantee; and why long agent runs fail more often than their single steps suggest
+- Notebook `11-tools.ipynb`, checked in CI like the others. It starts from Guide 8's checkpoint (`code/guides/checkpoints/finetune-base.pt`) and fine-tunes the tool model live in under 20 seconds. Its output matched the guide at every thread count tried, with AVX-512, AVX2 and generic kernels, so no block needs the varies flag. `code/guides/tools_seeds.py` reruns the experiments over three seeds (about a minute). Notebook 10 links forward to it
+- Guide 11 in the PDF book, with its figures, and its terms in the glossary and notation appendices
+- The sidebar says "1 more guide coming", not "1 more guides coming"
+
 ## 0.7.3 (2026-11-05)
 
 Visual guides for every released guide:
