@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1 (2026-11-12)
+
+- The visual guide for Guide 11, tool use and agents: one A3 sheet in four steps (who runs the tool, with the toy's transcript; how a model learns to call, with the loss mask over one training example and the 36 of 36 and 115 of 115 results; why facts belong in a tool, against Guide 8's fine-tune, and why its results can't be taken on trust; what constrained decoding guarantees, and how step errors compound in an agent). Every number is the guide's; three cold-context review rounds. On the site at `/visuals/`, linked from the guide page and the README, and attached to the release
+
 ## 0.8.0 (2026-11-12)
 
 Guide 11 joins Part 2, "Lifecycle":
