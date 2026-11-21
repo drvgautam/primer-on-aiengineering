@@ -18,6 +18,7 @@ body:
         - "9. Alignment"
         - "10. Inference and serving"
         - "11. Tool use and agents"
+        - "12. Retrieval-augmented generation"
         - "Other / several"
     validations:
       required: true

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 (2026-11-21)
+
+Guide 12 completes Part 2, "Lifecycle", and the series:
+
+- Guide 12, retrieval-augmented generation: answering from documents put in the prompt instead of from the weights; sparse retrieval (TF-IDF and BM25) and why word matching misses a reworded question; dense retrieval with a contrastively trained retriever, and why similarity isn't relevance; hybrid retrieval and reranking, and finding the closest passages fast; a reader fine-tuned to copy its answer from the passage, and to abstain when the passage doesn't hold it; how the whole pipeline fails, and why a citation doesn't guarantee support; choosing RAG, tools or fine-tuning; and the series' running example, run once more through every stage
+- Notebook `12-rag.ipynb`, checked in CI like the others. It starts from Guide 8's checkpoint (`code/guides/checkpoints/finetune-base.pt`) and trains the retriever and the two readers live in under 30 seconds. Its output matched the guide at every thread count tried, with AVX-512, AVX2 and generic kernels, so no block needs the varies flag. `code/guides/rag_seeds.py` reruns the experiments over three seeds (under a minute). Notebook 11 links forward to it
+- Guide 12 in the PDF book, with its figures, and its terms in the glossary and notation appendices
+- Before release the guide had a further Consistency round against the series as Guides 5-8 and 11 left it: "search query" is declared apart from attention's query, a graph index has levels, not layers, and its preference-tuning and hard-negative terms match the glossary
+- The README's description and "coming next" line now cover the whole series
+
 ## 0.8.1 (2026-11-12)
 
 - The visual guide for Guide 11, tool use and agents: one A3 sheet in four steps (who runs the tool, with the toy's transcript; how a model learns to call, with the loss mask over one training example and the 36 of 36 and 115 of 115 results; why facts belong in a tool, against Guide 8's fine-tune, and why its results can't be taken on trust; what constrained decoding guarantees, and how step errors compound in an agent). Every number is the guide's; three cold-context review rounds. On the site at `/visuals/`, linked from the guide page and the README, and attached to the release

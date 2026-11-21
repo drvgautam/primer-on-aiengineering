@@ -1,0 +1,352 @@
+---
+title: "Retrieval-augmented generation: answering from documents"
+guide: 12
+slug: rag
+part: Lifecycle
+---
+import { PipelineFigure, ErrorFigure, SeriesFigure } from "../components/figures/rag"
+
+# Retrieval-augmented generation: answering from documents
+
+This last guide puts documents in front of the model at question time. You'll draw the pipeline and see what each half does. Matching words will find nothing on the toy's questions, and a retriever trained on questions will still mistake the fox for the hen. By the end you can trace a confident wrong answer back to retrieval or to reading, and say when a tool or fine-tuning would have been the better choice.
+
+## Answering from documents
+
+Recall from Guide 7 that a base model knows nothing after its training data. Guide 8 tried to teach the toy one new fact by fine-tuning, "the cat lives in the pot", and the model began answering "pot" for every animal it was asked about. Guide 11 kept the fact outside the model instead, in a tool's table, so moving the cat took one edit and disturbed nothing else.
+
+**Retrieval-augmented generation**, or RAG, applies the same idea to documents. The name comes from [Lewis et al. (2020)](https://arxiv.org/abs/2005.11401), who paired a search over Wikipedia with a model that wrote answers from what it found. A RAG system has two halves:
+
+- The **retriever** searches a **knowledge base**, the text the system can draw on, split into **passages** it can return one at a time. It scores the passages against the question and returns the highest-scoring ones, which are meant to be the relevant ones.
+- The **reader** is the large language model (LLM). It gets the top passages and the question together in its prompt, and answers from them.
+
+Without retrieval, the model answers from what training stored in its weights; there's no search over any source. With RAG there is a search, but it happens outside the model, in ordinary code. The model doesn't search: it reads whatever the search put in its context, and it still brings everything its weights hold.
+
+Facts then update when someone edits a document, with no training. Answers can cite the passages that were in the prompt, so a person can check them. Those citations still need checking: in one evaluation of generative search engines, only about half of the generated sentences were fully supported by their citations ([Liu, Zhang & Liang, 2023](https://arxiv.org/abs/2304.09848)). And the model can answer from private documents it never saw in training.
+
+<figure>
+<PipelineFigure />
+<figcaption>Figure 1. A RAG pipeline on the toy question. The retriever scores the passages in the knowledge base, the top passage goes into the prompt with the question, and the reader answers from its prompt. Changing what the system knows means editing the knowledge base, not training the model.</figcaption>
+</figure>
+
+## The toy knowledge base
+
+The examples use the series' toy world: sentences about six animals, where each animal has a home (cat hut, dog bed, rat log, fox rug, owl pot, hen mat), and Guide 8's base model, a 29,275-parameter character-level transformer pre-trained on those sentences. The knowledge base holds the six home sentences and 60 distractors drawn from Guide 7's sentence types, like "the fox sat by the hut". Run the blocks from the repository root, so Python can find the series' modules in `guides/`:
+
+```python fresh timeout=120
+import sys
+sys.path.insert(0, "guides")                   # run from the repository root
+import math, random, torch
+import torch.nn.functional as F
+from rag import (kb, distractors, words, question, nouns, places, types, recall, ranks, top_passages,
+                 skipgram, train_retriever, train_reader, reader_check, read)
+
+print(len(kb), "passages;", sum(p.split()[1] == "cat" for p in distractors), "distractors are about the cat")
+print(kb[0], "|", kb[6], "|", question("cat"))
+```
+
+```output
+66 passages; 10 distractors are about the cat
+the cat lives in the hut | the fox sat by the hut | where does the cat live
+```
+
+The code uses PyTorch 2.14.1 from the series `requirements.txt`, as of October 2026. Its blocks run in order and share variables, and the plumbing lives in `guides/rag.py`: the knowledge base, ranking, the training loops and the reader's evaluation.
+
+Each question is "where does the *animal* live", one per animal. A retriever ranks all 66 passages for each one, and it succeeds if the animal's home sentence comes first. The share of questions where it does is **recall@1**; the share where it's within the top three is **recall@3**. Ten distractors mention the cat, so finding the cat's home means picking one cat sentence out of eleven.
+
+Real passages aren't single sentences. Documents are cut into passages, often called **chunks**, a step called **chunking**, and the chunk size matters: too small and an answer is split across chunks, too large and one chunk mixes several topics and fills the context. As of October 2026, a few hundred words is a common choice. Real questions also vary endlessly where the toy's six follow one template. The toy keeps both simple so that every result is exact. Its reader's context holds 64 characters (in the toy, each character is a token), so it sees one passage at a time; real systems pass several, and the pipeline section covers what that adds.
+
+## Sparse retrieval: matching words
+
+The oldest way to find relevant text is to match words. **TF-IDF** (term frequency times inverse document frequency) turns each text into a vector with one slot per word in the knowledge base's 27-word list. A word's weight counts how often it appears in the text, multiplied by how rare it is across the knowledge base, so that a word every passage contains tells you nothing. Taking the log of the rarity ratio makes a word found everywhere count for exactly nothing, since $\log 1 = 0$, and keeps very rare words from dominating:
+
+$$
+\operatorname{idf}(\text{word}) = \log \frac{\text{number of passages}}{\text{passages containing the word}}
+$$
+
+The idea of weighting by rarity goes back to [Spärck Jones (1972)](https://doi.org/10.1108/eb026526). A related scoring function from search engines, **BM25** ("best matching", the 25th variant its authors tried), comes from a probabilistic model of relevance; it also weights rare words more, caps how much repeating a word can add, and adjusts for passage length ([Robertson & Zaragoza, 2009](https://doi.org/10.1561/1500000019)). To score a passage, compare its vector with the question's by cosine similarity. Recall from Guide 3 that $\cos(u, v) = \frac{u \cdot v}{\lVert u \rVert \, \lVert v \rVert}$, the dot product divided by both lengths, is 1 when two vectors point the same way and 0 when they share nothing. Vectors like these, mostly zeros, are called sparse, and so is retrieval that uses them:
+
+```python
+df = {w: sum(w in p.split() for p in kb) for w in words}                # passages containing each word
+idf = {w: math.log(len(kb) / df[w]) if df[w] else 0.0 for w in words}   # rarer words weigh more
+
+def tfidf(text):                               # 27 numbers, one per word in `words`: count × idf
+    v = torch.zeros(len(words))
+    for w in text.split():
+        v[words.index(w)] += idf[w]
+    return v
+
+def sparse(text, kb):                          # 66 scores: cosine of the text's vector with every passage's
+    return F.cosine_similarity(tfidf(text)[None], torch.stack([tfidf(p) for p in kb]))
+
+print(f"recall@1 {recall(sparse, kb, nouns, 1):.0%}, recall@3 {recall(sparse, kb, nouns, 3):.0%}")
+print(top_passages(sparse, kb, question("cat")))
+print({w: round(idf[w], 2) for w in ("the", "cat", "lives", "live", "where")})
+```
+
+```output
+recall@1 0%, recall@3 0%
+['the cat hid by the hut', 'the cat hid on the rug', 'the cat lay on the bed']
+{'the': 0.0, 'cat': 1.79, 'lives': 2.4, 'live': 0.0, 'where': 0.0}
+```
+
+TF-IDF found no home sentence for any animal, not even in its top three. The idf values explain it: "the" is in every passage, so its weight is 0. "where", "does" and "live" appear in no passage, so the formula is undefined for them and the code gives them 0; to a word matcher, "live" and "lives" are different words. That leaves "cat" as the only word that scores, so the dot product is the same for all eleven passages containing it, and the ranking comes down to the cosine's division by each passage's vector length. The home sentence's rare words, "lives" and "in", make its vector longer, so distractors with commoner words win.
+
+That failure is called **vocabulary mismatch**: the question and the answer use different words for the same thing. To check the diagnosis, ask in the documents' own words:
+
+```python
+rewritten = lambda a: f"the {a} lives in"      # the question, in the passages' words
+print(f"rewritten: recall@1 {recall(sparse, kb, nouns, 1, ask=rewritten):.0%}")
+```
+
+```output
+rewritten: recall@1 100%
+```
+
+Now "lives", weighted by its rarity, picks out the six home sentences, and the animal's name picks the right one. Real systems narrow the gap with stemming (cutting "lives" and "live" to one form), synonym lists and query rewriting, or they use retrievers that learn which texts go together.
+
+## Dense retrieval: matching learned vectors
+
+**Dense retrieval** compares learned vectors of the question and each passage, pooled from word embeddings, instead of word counts; other sources call it embedding retrieval. Recall from Guide 3 that skip-gram learns a vector for each word by predicting its neighbors, so words used in similar contexts get similar vectors. Here skip-gram trains 8-number vectors on the text Guide 8's base model was pre-trained on. A whole text's vector is the average of its words' vectors, the pooling from Guide 3. As in Guide 3's toys, the retriever's tokens are whole words; real dense retrievers embed Guide 2's subword tokens and read them in context:
+
+```python
+E = skipgram()                                 # |words| × 8: Guide 3's skip-gram on Guide 8's corpus
+
+def embed(text, E):                            # a text's vector, 8 numbers: the average of its words' vectors
+    return E[[words.index(w) for w in text.split()]].mean(0)
+
+def dense(E):                                  # a retriever: 66 cosines of averaged vectors
+    return lambda text, kb: F.cosine_similarity(embed(text, E)[None], torch.stack([embed(p, E) for p in kb]))
+
+general = dense(E)
+print(f"recall@1 {recall(general, kb, nouns, 1):.0%}, recall@3 {recall(general, kb, nouns, 3):.0%}")
+print(top_passages(general, kb, question("cat")))
+print({a: round(F.cosine_similarity(E[words.index("cat")], E[words.index(a)], dim=0).item(), 2) for a in nouns[1:]})   # cosine with "cat"
+```
+
+```output
+recall@1 0%, recall@3 0%
+['the hen ran near the mat', 'the hen ran near the bed', 'the hen hid near the mat']
+{'dog': 0.99, 'rat': 1.0, 'fox': 1.0, 'owl': 0.99, 'hen': 0.99}
+```
+
+These general-purpose vectors did no better. Asked about the cat, the retriever returned three sentences about the hen. The cosines on the last line explain it: the cat's vector is almost the same as every other animal's, with cosines of 0.99 and above. Skip-gram learns from contexts, and in the toy every animal appears in the same contexts, so their vectors converge. Guide 3 saw the same effect when "cat" ended up close to "mat". The question words "where", "does" and "live" never occur in the pre-training text, so their vectors are still their random starting values and add noise.
+
+So high similarity doesn't mean a passage answers the question. "the hen ran near the mat" is similar to "where does the cat live" in this space, and it says nothing about where the cat lives. Similarity reflects the contexts the vectors were trained on, and those contexts were never questions and answers.
+
+The fix is to train the retriever for the task. **Contrastive training** teaches it to score the right passage above wrong ones. Here, for each question, take its right passage and 15 random others, and treat the 16 as options in a classification. Their cosines go through a softmax as logits, and Guide 1's cross-entropy loss, the negative log of the probability given to the correct option, pushes the right passage's probability up. Cosines only run from −1 to 1, which is too narrow: even with the right passage at 1 and the other 15 at −1, the softmax gives it only $e^{1}/(e^{1} + 15e^{-1}) \approx 0.33$. Dividing by a `sharpness` of 0.1 (papers call this divisor a temperature; it plays the same role as Guide 6's $T$ but is a separate setting) widens the range to −10 to 10, so the right passage's probability can approach 1. Training starts from the skip-gram vectors and adjusts them with Adam for 300 steps, one question per step, using questions about only three animals: the cat, the dog and the rat.
+
+```python
+def contrastive_loss(q, candidates, sharpness=0.1):   # q: 8 numbers; candidates: 16 × 8, the right passage first
+    scores = F.cosine_similarity(q[None], candidates) / sharpness
+    return F.cross_entropy(scores[None], torch.tensor([0]))        # Guide 1's loss, with the right passage as class 0
+
+E_trained = train_retriever(E, contrastive_loss, embed, seed=0)   # questions about cat, dog, rat only
+trained = dense(E_trained)
+for group in (nouns[:3], nouns[3:]):
+    print(group, f"recall@1 {recall(trained, kb, group, 1):.0%}, recall@3 {recall(trained, kb, group, 3):.0%}")
+print(top_passages(trained, kb, question("fox")))
+pairs = [("cat", "dog"), ("cat", "rat"), ("fox", "owl"), ("fox", "hen")]
+print({f"{a}-{b}": round(F.cosine_similarity(E_trained[words.index(a)], E_trained[words.index(b)], dim=0).item(), 2)
+       for a, b in pairs})
+```
+
+```output
+['cat', 'dog', 'rat'] recall@1 100%, recall@3 100%
+['fox', 'owl', 'hen'] recall@1 33%, recall@3 100%
+['the hen lives in the mat', 'the owl lives in the pot', 'the fox lives in the rug']
+{'cat-dog': 0.01, 'cat-rat': -0.63, 'fox-owl': 1.0, 'fox-hen': 0.99}
+```
+
+The training took about a second. Its loss has the form used by dense passage retrieval, or DPR ([Karpukhin et al., 2020](https://arxiv.org/abs/2004.04906)), which trained separate question and passage encoders and beat BM25 at finding answer passages on most of the question-answering benchmarks it tested. DPR scored with a dot product rather than a scaled cosine, and used the right passages of the other questions in each batch as its wrong passages (papers call them negatives), plus one hard wrong passage (a hard negative) chosen by BM25; the toy also shares one vector table between questions and passages. With training seeds 1 and 2 (`guides/rag_seeds.py`, under a minute), the results were:
+
+| Retriever | Recall@1, cat/dog/rat | Recall@1, fox/owl/hen | Recall@3, fox/owl/hen |
+|---|---|---|---|
+| TF-IDF | 0% | 0% | 0% |
+| General-purpose embeddings | 0% | 0% | 0% |
+| Trained dense, seeds 0, 1, 2 | 100%, 100%, 100% | 33%, 0%, 0% | 100%, 67%, 67% |
+
+Training taught the retriever what word overlap couldn't: "where does … live" goes with "… lives in …". It's perfect on the three animals it trained on. On the other three it often ranked another animal's home sentence first. For the fox at seed 0, the hen's came first, then the owl's, then the fox's own. The 15 wrong passages come from all 66, so the cat's question often had to beat "the dog lives in the bed". A passage's vector averages its words', and those two sentences differ only in the animal and the place. That forced training to move those words apart, and the cat's cosine with the dog fell from 0.99 to 0.01, with the rat to −0.63. Nothing pushed the fox, owl and hen apart. As with Guide 9's reward model, a learned scorer can only be trusted as far as its training data covered.
+
+Real retrievers are larger versions of the same thing. Instead of averaging word vectors, they run a transformer over the whole passage and use the average of its outputs, or one designated token's vector. They're trained contrastively on large sets of question–passage pairs, so they cover far more than three animals.
+
+<details>
+<summary>Finding the closest passages fast</summary>
+
+The toy compares each question with all 66 passages. A knowledge base of millions of passages makes that too slow for every question, so systems use an index that finds **approximate nearest neighbors** (ANN): passages that are very probably among the closest, found without comparing against them all. ("Nearest neighbors" is the search term, unrelated to skip-gram's neighbors in the text.) One family, locality-sensitive hashing, hashes vectors into buckets so that similar vectors tend to share a bucket, and only the buckets the question falls into, one per hash table, are searched ([Indyk & Motwani, 1998](https://doi.org/10.1145/276698.276876)). Another builds a graph linking each passage to some nearby passages and walks it greedily toward the question, with long-range links on upper levels to get close quickly ([Malkov & Yashunin, 2018](https://arxiv.org/abs/1603.09320)). Both miss a true nearest neighbor now and then; a small loss of recall buys a large gain in speed.
+
+</details>
+
+## Hybrid retrieval and reranking
+
+The two kinds of retriever fail differently. Sparse retrieval is good at exact words, like names and codes, and blind to rewording. Dense retrieval matches whatever its training paired together, which can include rewordings that share no words, but it can blur names together, as it blurred the fox with the hen. **Hybrid retrieval** combines the two, here by adding half of each score:
+
+```python
+def hybrid(text, kb, w_dense=0.5):            # half learned match, half word overlap
+    return w_dense * trained(text, kb) + (1 - w_dense) * sparse(text, kb)
+
+print(f"recall@1 on fox, owl, hen: {recall(hybrid, kb, nouns[3:], 1):.0%}; rank of each home sentence:",
+      ranks(hybrid, kb, nouns))
+```
+
+```output
+recall@1 on fox, owl, hen: 100%; rank of each home sentence: [1, 1, 1, 1, 1, 1]
+```
+
+The exact word "fox" pulls the fox's sentences up and the learned match pulls home sentences up, so the one sentence that is both wins, at all three seeds, against 0% for the trained dense retriever alone at seeds 1 and 2. Hybrids don't always win, though: in Karpukhin et al.'s (2020) experiments, adding BM25 to dense retrieval helped on three of five benchmarks and hurt on two. When a question is worded unlike its answer, the word-overlap half only adds noise.
+
+A second stage often follows. **Reranking** takes a short list of candidates from a cheap retriever and scores each with a model that reads the question and the passage together, as one input (a cross-encoder, in most papers), so its attention can compare them word by word ([Nogueira & Cho, 2019](https://arxiv.org/abs/1901.04085)). That's too slow to run over a whole knowledge base, but more accurate than comparing two separately computed vectors, and on a short list it's affordable; Nogueira & Cho reranked the top 1,000 from BM25. The toy doesn't run one.
+
+## The reader: answering from a passage
+
+The reader is Guide 8's base model, fine-tuned the way Guide 8 taught answering: supervised fine-tuning on (prompt, response) pairs, with the loss only on the response. Each prompt is a passage followed by the question, and the response is the answer, ending in " and". Guide 8 used " and" to mark the end of an answer, so generation is cut when the model writes it, and `read` strips it from the answer it returns; real chat formats end a turn with a special token instead, as Guide 8 noted.
+
+As in Guide 11, the place in each training passage is random. If passages always held the true homes, the model could pass training by recalling homes from its weights and ignoring the passage. With random places, the only way to get the answer right is to copy it from the passage.
+
+Two readers show what abstaining does. **Abstention** means answering "unknown" when the passage doesn't contain the answer. The first reader trains only on passages that answer. The second also gets passages that don't, 40% of its examples, with "unknown" as the response: half are another animal's home sentence, half a distractor about the same animal.
+
+```python
+def reader_example(rng, abstain):             # one (prompt, response) pair, with a random place
+    a, place = rng.choice(nouns), rng.choice(places)
+    passage, answer = f"the {a} lives in the {place}", f"in the {place}"
+    roll = rng.random()
+    if abstain and roll < 0.2:                 # another animal's home sentence
+        other = rng.choice([b for b in nouns if b != a])
+        passage, answer = f"the {other} lives in the {place}", "unknown"
+    elif abstain and roll < 0.4:               # a distractor about the same animal
+        passage, answer = rng.choice([t for t in types if t.split()[1] == a]), "unknown"
+    return f"{passage} {question(a)} ", f"{answer} and"
+
+print(reader_example(random.Random(1), abstain=True))
+```
+
+```output
+('the dog lives in the pot where does the dog live ', 'in the pot and')
+```
+
+Each reader trains for 400 steps on batches of 32 drawn from 2,000 such examples, with Adam at a learning rate of 0.001. `reader_check` then tries 102 passages. There are 36 right home sentences and 36 distractors like "the cat sat on the mat", one of each per animal and place, and 30 pairings of an animal's question with a different animal's true home sentence. It counts the place copied correctly on the first, "unknown" or any place on the second, and "unknown" or the other animal's place on the third:
+
+```python
+readers = {}
+for abstain in (False, True):
+    readers[abstain] = train_reader(reader_example, abstain, seed=0)    # 400 steps, about 10 s per reader
+    print(f"abstain={abstain}:", reader_check(readers[abstain]))
+    print("  given 'the cat lives in the pot':", read(readers[abstain], "the cat lives in the pot", "cat"))
+```
+
+```output
+abstain=False: {'copied': 36, 'distractor: unknown': 0, 'distractor: a place': 36, "other's home: unknown": 0, "other's home: its place": 30}
+  given 'the cat lives in the pot': in the pot
+abstain=True: {'copied': 36, 'distractor: unknown': 36, 'distractor: a place': 0, "other's home: unknown": 0, "other's home: its place": 30}
+  given 'the cat lives in the pot': in the pot
+```
+
+The second reader, trained with abstention, gave the same counts with training seeds 1 and 2:
+
+| Passage given | Reader without abstention | Reader with abstention |
+|---|---|---|
+| The right home sentence, 36 animal–place combinations | copies the place, 36 of 36 | copies the place, 36 of 36 |
+| A distractor about the same animal ("the cat sat on the mat") | answers a place, 36 of 36 | "unknown", 36 of 36 |
+| Another animal's home sentence ("the dog lives in the bed", asked about the cat) | answers a place, 30 of 30 | answers a place, 30 of 30; "unknown" 0 of 30 |
+
+Reading down the columns:
+
+- **In this toy, the passage overrides memory.** Given "the cat lives in the pot", both readers answer "in the pot", though the base model learned "hut". That's the point of RAG: the answer comes from the document, so editing the document changes the answer. The toy reader copies every time because its training made copying the only way to score; real readers don't always.
+- **Without abstention, a passage with no answer gets a guess.** Given "the cat sat on the mat", the first reader answered "in the hut", the cat's home from its weights. Over all 36 such passages it gave the animal's own home 11 times, copied the passage's place 10 times, and named some other place 15 times (`guides/rag_seeds.py`). Each was stated as fluently as a right answer.
+- **Abstention covers only what the reader learned, and training on a case doesn't guarantee it's learned.** The second reader said "unknown" to every distractor of the kind it trained on. Given another animal's home sentence, it answered with that animal's place 30 times out of 30, even though a fifth of its training examples were exactly that case. Spotting that "sat" isn't "lives" is easy. Checking that the animal in the passage is the animal in the question is harder, and this reader didn't learn it in 400 steps. It can't reliably tell when it doesn't know.
+
+## The whole pipeline, and how it fails
+
+Now put the halves together and change the world: every animal moves. The cat now lives in the pot, the dog in the hut, the rat in the bed, the fox in the mat, the owl in the rug and the hen in the log. The update is an edit to six passages. No model is retrained. The retrievers are the seed-0 ones, and each one's top passage goes to the seed-0 reader trained with abstention from the last block (`readers[True]`):
+
+```python
+moved = {"cat": "pot", "dog": "hut", "rat": "bed", "fox": "mat", "owl": "rug", "hen": "log"}
+kb_moved = [f"the {a} lives in the {moved[a]}" for a in nouns] + distractors    # edit documents, retrain nothing
+for name, score in [("TF-IDF", sparse), ("general", general), ("trained dense", trained), ("hybrid", hybrid)]:
+    tally, misses = {"right": 0, "unknown": 0, "wrong": 0}, []
+    for a in nouns:
+        passage = top_passages(score, kb_moved, question(a), 1)[0]      # the top passage goes in the prompt
+        answer = read(readers[True], passage, a)
+        verdict = "right" if answer == f"in the {moved[a]}" else "unknown" if answer == "unknown" else "wrong"
+        tally[verdict] += 1
+        misses += [f"  {a}: {passage!r} -> {answer!r}"] * (verdict != "right")       # every miss, with its passage
+    print(f"{name:13}  right {tally['right']}  unknown {tally['unknown']}  wrong {tally['wrong']}", *misses, sep="\n")
+```
+
+```output
+TF-IDF         right 0  unknown 6  wrong 0
+  cat: 'the cat hid by the hut' -> 'unknown'
+  dog: 'the dog lay near the bed' -> 'unknown'
+  rat: 'the rat hid by the bed' -> 'unknown'
+  fox: 'the fox hid by the bed' -> 'unknown'
+  owl: 'the owl hid by the hut' -> 'unknown'
+  hen: 'the hen hid by the bed' -> 'unknown'
+general        right 0  unknown 5  wrong 1
+  cat: 'the hen ran near the mat' -> 'in the mat'
+  dog: 'the hen ran near the mat' -> 'unknown'
+  rat: 'the hen hid by the bed' -> 'unknown'
+  fox: 'the hen ran near the mat' -> 'unknown'
+  owl: 'the hen hid by the bed' -> 'unknown'
+  hen: 'the hen hid by the bed' -> 'unknown'
+trained dense  right 3  unknown 0  wrong 3
+  fox: 'the hen lives in the log' -> 'in the log'
+  owl: 'the hen lives in the log' -> 'in the log'
+  hen: 'the rat lives in the bed' -> 'in the bed'
+hybrid         right 6  unknown 0  wrong 0
+```
+
+The three right answers from the trained dense retriever and the six from the hybrid are all new homes, which no model's weights contained.
+
+The weak retrievers mostly failed safely. TF-IDF returned a distractor about the right animal every time, the kind of passage the reader was trained to refuse, and the reader said "unknown". The general-purpose retriever returned a hen distractor for every question, and a hen distractor is a same-animal distractor only when the question is about the hen. The reader said "unknown" to five of them, but not reliably: the same passage, "the hen ran near the mat", got "unknown" when the question was about the dog or the fox, and "in the mat" when it was about the cat.
+
+The trained dense retriever failed more dangerously, because it always returned a home sentence, the form the reader trusts. For the fox, it returned the hen's, "the hen lives in the log", and the reader answered "in the log", confidently and wrongly. The owl got the hen's sentence too, and the hen got the rat's, just as the dense-retrieval section showed this retriever ranking the hen's sentence first for the fox.
+
+<figure>
+<ErrorFigure />
+<figcaption>Figure 2. How a retrieval error becomes a confident answer. Asked where the fox lives after every animal moved, the trained dense retriever returns the hen's home sentence, and the reader, which never learned to check the animal, copies its place. The error started at retrieval, and the reader let it through.</figcaption>
+</figure>
+
+In the toy, every wrong answer after the move started with a wrong passage: RAG moved where wrong answers come from without eliminating them. A right passage, meanwhile, was copied every time, because the reader was trained so that copying was its only way to score. Real readers aren't built that way: they can prefer what their weights hold over a passage that contradicts it ([Longpre et al., 2021](https://arxiv.org/abs/2109.05052)), misread a passage, or stretch it beyond what it says, as Guide 11's toy ignored an unfamiliar tool result, "mud", and guessed "bed". And when retrieval finds a wrong passage that looks right, the reader passes the error on as a fluent answer. "log" was never the fox's home; that answer came from the passage, not the reader's memory.
+
+Guide 9 warned that a single preference score can look perfect while outputs degrade, and one number hides failures here too. That's why measuring a RAG system takes two numbers: did retrieval find the right passage, and did the answer follow it? A bad answer from a good passage is a reader problem, fixed with a better reader: abstention training that includes wrong-subject passages, or a check that the passage is about what was asked. A bad answer from a bad passage starts at retrieval, though a better reader could have stopped it; the fixes are hybrid scores, reranking, or training pairs that cover real questions. The series has no evaluation guide, so treat this as the minimal practice.
+
+As declared earlier, the toy's reader sees one passage. Real systems pass several, ordered and trimmed to fit the context, which brings failures the toy can't show:
+
+- the answer is split across passages that don't all fit in the context;
+- as Guide 4 noted, being able to draw on a token isn't the same as using it well: the models [Liu et al. (2023)](https://arxiv.org/abs/2307.03172) tested used information in the middle of a long context less reliably than information at its start or end;
+- retrieved documents can carry instructions that the model may follow, the indirect prompt injection of Guide 11 ([Greshake et al., 2023](https://arxiv.org/abs/2302.12173));
+- documents go stale, and users can be shown passages they shouldn't see, unless the knowledge base enforces freshness and access rules.
+
+## RAG, tools or fine-tuning?
+
+The series has now shown four ways to change what a model answers:
+
+| Need | Usual choice | Why (series evidence) |
+|---|---|---|
+| Facts that change, or that the model never saw | RAG or a tool | Guide 8: fine-tuning one fact in damaged others; Guides 11–12: a table or document edit took effect at once |
+| Exact lookups or actions: databases, APIs, calculations | A tool | Guide 11: the application runs the tool and returns its exact result |
+| Answers grounded in a large collection of documents | RAG | this guide |
+| A format, style or task behavior | Fine-tuning | Guide 8: 130 examples taught the toy to answer and stop |
+| Preferring one acceptable answer over another (helpfulness, tone, safety) | Preference tuning | Guide 9 |
+
+In practice they combine. An assistant can be fine-tuned and preference-tuned, call tools, and retrieve documents, sometimes with retrieval as one of its tools.
+
+## The whole series in one pipeline
+
+The series' running example, "The cat sat on the", makes one last appearance here, lowercased for the toy alphabet, as a search query (unrelated to attention's queries) to the toy knowledge base:
+
+```python
+print(top_passages(sparse, kb, "the cat sat on the", 1), top_passages(trained, kb, "the cat sat on the", 1))
+```
+
+```output
+['the cat sat on the rug'] ['the cat lay by the hut']
+```
+
+Word overlap finds the passage that repeats the query's words. The trained retriever returns a different one: its vectors were reshaped to match "where does … live" with home sentences, and for text that isn't that kind of question, their scores don't have to follow word overlap. The toy's vectors don't tell you why this passage won, only that it shares just "the" and "cat" with the query.
+
+Trace one question through the series. Guides 7 to 9 set the weights once, beforehand. At question time, Guides 11 and 12 add outside text to the context, and Guide 2's tokenizer splits it into tokens. Guides 3 to 5 turn those into vectors, mix them across tokens with attention and transform each one with the MLPs. Guide 6's distribution and decoding rule then produce the answer one token at a time, served fast enough by Guide 10's methods.
+
+<figure>
+<SeriesFigure />
+<figcaption>Figure 3. The whole series in one picture, with the guides that cover each part. Training fixed the weights beforehand. At answer time the context, holding the question and retrieved passages, runs through the model, a decoding rule picks one token, and its ID is appended before the next pass; tool results join the context mid-answer. The answer is only as good as the context and the model's reading of it.</figcaption>
+</figure>

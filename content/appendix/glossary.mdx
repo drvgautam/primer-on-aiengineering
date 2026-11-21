@@ -1,6 +1,6 @@
 # Glossary
 
-One term per concept, as used in Guides 1–11. Declared synonyms are other names you'll meet in the literature.
+One term per concept, as used in Guides 1–12. Declared synonyms are other names you'll meet in the literature.
 
 | Term (used in the guides) | Definition | Declared synonyms | Guide |
 |---|---|---|---|
@@ -81,7 +81,7 @@ One term per concept, as used in Guides 1–11. Declared synonyms are other name
 | ELMo (optional) | A 2018 model that produced contextual embeddings with recurrent networks. | — | 3 |
 | pooling | Combining the embeddings of several tokens into one vector, in Guide 3 by averaging; the result ignores token order. | averaging (in Guide 3) | 3 |
 | attention | Rebuilding each token's vector as a softmax-weighted average of value vectors, with weights from query–key dot products. | — | 4 |
-| query | The vector a token's scores are computed from: what it is looking for; a row of $Q$. | — | 4 |
+| query | The vector a token's scores are computed from: what it is looking for; a row of $Q$. Unrelated to a retrieval query (Guide 12). | — | 4 |
 | key | The vector other tokens' queries are compared against; a row of $K$. | — | 4 |
 | value | The vector a token hands over to tokens that draw on it; a row of $V$. | — | 4 |
 | score (attention) | The dot product of one query with one key; from Guide 4 section 4 on, divided by $\sqrt{d_k}$. | — | 4 |
@@ -138,7 +138,7 @@ One term per concept, as used in Guides 1–11. Declared synonyms are other name
 | calibration | How well a model's probabilities match how often it is right: calibrated means right about 70% of the time when it says 0.7. | calibrated | 6 |
 | end-of-text token | GPT-2's special token 50256; in generation, choosing it ends the loop. | — | 2 |
 | prompt | The text given to the model before generation starts; processed in one parallel pass. | — | 6 |
-| stop sequence (optional) | A string that ends generation when it appears in the output; named in Guide 6, used in Guide 8's toy and Guide 11's tool toy (" and"), listed among Guide 10's serving controls. | stop marker, marker (Guide 8, informal) | 6 |
+| stop sequence (optional) | A string that ends generation when it appears in the output; named in Guide 6, used in Guide 8's toy, Guide 11's tool toy and Guide 12's reader (" and"), listed among Guide 10's serving controls. | stop marker, marker (Guide 8, informal) | 6 |
 | repetition penalty (optional) | A generation-time adjustment that lowers the probability of tokens already produced; named only. | penalties for repeating tokens | 6 |
 | loss floor | (see "floor (loss floor)"); Guide 1's 0.884 is the one-character loss floor, never "limit" from Guide 6 on. | floor | 1 |
 | pre-training | Next-token training over a very large, general corpus, starting from random parameters. | — | 7 |
@@ -237,3 +237,27 @@ One term per concept, as used in Guides 1–11. Declared synonyms are other name
 | agent | An application that runs the tool loop many times over: after each result the model writes its next call, until it writes an answer with no call or the application's step limit is reached. | — | 11 |
 | constraint mask | In constrained decoding, the additive mask added to the logits: 0 for tokens the required format allows next, $-\infty$ for the rest; the same additive trick as the causal mask (Guide 4); unrelated to the 0/1 loss mask (Guide 8). | mask (only where no loss mask or causal mask could be meant) | 11 |
 | transcript | The full text of a tool-using exchange in order: prompt, model-written text, calls and appended results; what a hosted application re-sends on each call. | — | 11 |
+| retrieval-augmented generation | Answering with passages retrieved for the question placed in the model's prompt, so the model answers from text it can read rather than from its weights alone. | RAG | 12 |
+| retriever | The part of a RAG system that finds the passages relevant to a question by scoring the knowledge base. | — | 12 |
+| reader | In RAG, the LLM that answers with the retrieved passages and the question in its prompt. | — | 12 |
+| knowledge base | The collection of passages a retriever searches; updated by editing documents, not by training. | — | 12 |
+| passage | One retrievable piece of text in a knowledge base; a single sentence in Guide 12's toy, a chunk of a document in real systems. | chunk (when cut from a document) | 12 |
+| recall@1, recall@3 | The share of questions whose right passage the retriever ranks first, or within the top three; written with numbers, never with $k$. | — | 12 |
+| chunking | Cutting documents into passages of a set size for retrieval. | — | 12 |
+| TF-IDF | Term frequency times inverse document frequency: a sparse vector per text, each word weighted by its count times $\log$(passages / passages containing it), so rare words count more. | — | 12 |
+| BM25 (named only) | A word-matching score from a probabilistic model of relevance that, like TF-IDF, weights rare words more, and also caps the effect of repeated words and adjusts for passage length; the standard word-matching score in search engines. | — | 12 |
+| sparse retrieval | Retrieval by matching words, with vectors that are mostly zeros (TF-IDF, BM25). | word-overlap retrieval | 12 |
+| vocabulary mismatch | A question and its answer using different words for the same thing ("live" and "lives"), so word matching misses the answer. | — | 12 |
+| dense retrieval | Retrieval by cosine similarity of learned vectors for the question and each passage (in the toy, averaged word embeddings; in real systems, pooled transformer outputs). | embedding retrieval; text embedding (other sources, for a whole text's vector) | 12 |
+| contrastive training | Training a retriever to score each question's right passage above wrong ones: the candidates' scores go through a softmax and cross-entropy with the right passage as the correct option. | contrastive loss (the loss it uses) | 12 |
+| approximate nearest neighbors | Index methods that find passages very probably among the closest to a question without comparing against all of them, such as locality-sensitive hashing and graph indexes (HNSW); "nearest neighbors" is always written in full, never bare "neighbors", which is skip-gram's (Guide 3). | ANN | 12 |
+| hybrid retrieval | Retrieval that combines sparse and dense scores, in Guide 12 by a weighted sum. | — | 12 |
+| reranking | A second retrieval stage that rescores a short list of candidates (from dozens up to about 1,000) with a model reading the question and each passage together. | cross-encoder (other sources, the reranking model) | 12 |
+| abstention | A reader answering "unknown" when its passage doesn't contain the answer; learned only for the kinds of unhelpful passage it was trained on. The answer string "unknown" is unrelated to Guide 2's unknown token `<unk>`. | — | 12 |
+| dense passage retrieval (DPR) | Karpukhin et al.'s (2020) trained dense retriever: separate question and passage encoders trained contrastively, scored by dot product. | DPR | 12 |
+| sharpness | In Guide 12's contrastive loss, the divisor applied to cosines before the softmax (0.1 in the toy), widening their range. Never $T$, Guide 6's sampling temperature. | temperature, τ (other sources) | 12 |
+| distractor | In Guide 12's toy, a knowledge-base passage drawn from Guide 7's sentence types ("the fox sat by the hut") that mentions an animal but not its home; 60 of the 66 passages. | — | 12 |
+| wrong passage | In contrastive training, a candidate passage that doesn't answer the question; scored against the right passage. A hard wrong passage looks relevant (DPR's came from BM25). | negative, hard negative (other sources) | 12 |
+| query (retrieval) | The text a retriever scores the knowledge base against: in Guide 12, a question, or the running example used as a search. Unrelated to attention's query (Guide 4), a row of $Q$. | search query | 12 |
+| stemming (named only) | Cutting word forms to a shared stem ("lives", "live") so word matching treats them as one word. | — | 12 |
+| query rewriting (named only) | Rewording a question into the documents' own words before retrieval; in Guide 12's toy, "the *animal* lives in". | rewritten query | 12 |
