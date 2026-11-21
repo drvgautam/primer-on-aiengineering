@@ -8,8 +8,9 @@ import inference from "./inference"
 import neuralNetworks from "./neural-networks"
 import nextToken from "./next-token"
 import pretraining from "./pretraining"
+import rag from "./rag"
 import tokenizer from "./tokenizer"
 import tools from "./tools"
 import transformer from "./transformer"
 
-export const sheets = { "neural-networks": neuralNetworks, tokenizer, embeddings, attention, transformer, "next-token": nextToken, pretraining, finetuning, alignment, inference, tools }
+export const sheets = { "neural-networks": neuralNetworks, tokenizer, embeddings, attention, transformer, "next-token": nextToken, pretraining, finetuning, alignment, inference, tools, rag }

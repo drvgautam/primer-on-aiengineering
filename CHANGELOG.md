@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 (2026-11-21)
+
+- The visual guide for Guide 12, retrieval-augmented generation: one A3 sheet in four steps (what RAG is, with the toy question traced from retriever to reader; how the retriever finds a passage, with TF-IDF's vocabulary mismatch and recall@1 for each retriever; how the reader answers, with the passage overriding memory and what abstention does and doesn't cover; the whole pipeline after every animal moves, the fox's confident wrong answer, and when to choose RAG, a tool or fine-tuning). Every number is the guide's; three cold-context review rounds. On the site at `/visuals/`, linked from the guide page and the README, and attached to the release. Every guide now has a visual guide
+
 ## 0.9.0 (2026-11-21)
 
 Guide 12 completes Part 2, "Lifecycle", and the series:

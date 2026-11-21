@@ -16,7 +16,7 @@ along the way, and each guide builds on the ones before it.
 | **As a PDF** | all guides in one book: download it from the [latest release](https://github.com/drvgautam/primer-on-aiengineering/releases/latest) |
 | **As notebooks** | one Jupyter notebook per guide in [`code/notebooks/`](code/notebooks/), holding every code block in the guide's order |
 | **As lecture slides** | a LaTeX Beamer deck per guide, for teaching or review, as a lecture PDF and a handout (Guides 1 and 2 so far; the rest are on the way) |
-| **As visual guides** | one A3 sheet per guide that shows its whole idea at a glance, to print or pin up (Guides 1 to 11; Guide 12's is on the way) |
+| **As visual guides** | one A3 sheet per guide that shows its whole idea at a glance, to print or pin up (every guide: Guides 1 to 12) |
 
 ## The guides
 
@@ -40,7 +40,7 @@ along the way, and each guide builds on the ones before it.
 | 9 | [Alignment: teaching a model which answer is better](https://drvgautam.github.io/primer-on-aiengineering/alignment/) | [09-alignment.ipynb](code/notebooks/09-alignment.ipynb) | coming | [sheet](https://drvgautam.github.io/primer-on-aiengineering/visuals/09-alignment.pdf) |
 | 10 | [Inference and serving: running a trained model fast and cheap](https://drvgautam.github.io/primer-on-aiengineering/inference/) | [10-inference.ipynb](code/notebooks/10-inference.ipynb) | coming | [sheet](https://drvgautam.github.io/primer-on-aiengineering/visuals/10-inference.pdf) |
 | 11 | [Tool use and agents: letting a model act](https://drvgautam.github.io/primer-on-aiengineering/tools/) | [11-tools.ipynb](code/notebooks/11-tools.ipynb) | coming | [sheet](https://drvgautam.github.io/primer-on-aiengineering/visuals/11-tools.pdf) |
-| 12 | [Retrieval-augmented generation: answering from documents](https://drvgautam.github.io/primer-on-aiengineering/rag/) | [12-rag.ipynb](code/notebooks/12-rag.ipynb) | coming | coming |
+| 12 | [Retrieval-augmented generation: answering from documents](https://drvgautam.github.io/primer-on-aiengineering/rag/) | [12-rag.ipynb](code/notebooks/12-rag.ipynb) | coming | [sheet](https://drvgautam.github.io/primer-on-aiengineering/visuals/12-rag.pdf) |
 
 All twelve guides are out.
 
